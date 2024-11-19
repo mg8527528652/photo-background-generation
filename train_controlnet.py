@@ -32,7 +32,7 @@ import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration, set_seed
-from datasets import load_dataset
+from datasets import load_from_disk
 from huggingface_hub import create_repo, upload_folder
 from packaging import version
 from PIL import Image, ImageOps
@@ -253,7 +253,7 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--pretrained_model_name_or_path",
         type=str,
-        default=None,
+        default='stable-diffusion-2-inpainting',
         required=True,
         help="Path to pretrained model or model identifier from huggingface.co/models.",
     )
@@ -296,7 +296,7 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--resolution",
         type=int,
-        default=512,
+        default=1024,
         help=(
             "The resolution for input images, all the images in the train/validation dataset will be resized to this"
             " resolution"
@@ -309,13 +309,13 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--max_train_steps",
         type=int,
-        default=None,
+        default=70000,
         help="Total number of training steps to perform.  If provided, overrides num_train_epochs.",
     )
     parser.add_argument(
         "--checkpointing_steps",
         type=int,
-        default=500,
+        default=5,
         help=(
             "Save a checkpoint of the training state every X updates. Checkpoints can be used for resuming training via `--resume_from_checkpoint`. "
             "In the case that the checkpoint is better than the final trained model, the checkpoint can also be used for inference."
@@ -327,13 +327,13 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--checkpoints_total_limit",
         type=int,
-        default=None,
+        default=30,
         help=("Max number of checkpoints to store."),
     )
     parser.add_argument(
         "--resume_from_checkpoint",
         type=str,
-        default=None,
+        default='latest',
         help=(
             "Whether training should be resumed from a previous checkpoint. Use a path saved by"
             ' `--checkpointing_steps`, or `"latest"` to automatically select the last available checkpoint.'
@@ -353,7 +353,7 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--learning_rate",
         type=float,
-        default=5e-6,
+        default=1e-5,
         help="Initial learning rate (after the potential warmup period) to use.",
     )
     parser.add_argument(
@@ -387,7 +387,7 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--dataloader_num_workers",
         type=int,
-        default=0,
+        default=4,
         help=(
             "Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process."
         ),
@@ -434,7 +434,7 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--mixed_precision",
         type=str,
-        default=None,
+        default='fp16',
         choices=["no", "fp16", "bf16"],
         help=(
             "Whether to use mixed precision. Choose between fp16 and bf16 (bfloat16). Bf16 requires PyTorch >="
@@ -473,7 +473,7 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--train_data_dir",
         type=str,
-        default=None,
+        default='/home/ubuntu/Desktop/mayank_gaur/training_data/arrow_files',
         help=(
             "A folder containing the training data. Folder contents must follow the structure described in"
             " https://huggingface.co/docs/datasets/image_dataset#imagefolder. In particular, a `metadata.jsonl` file"
@@ -486,7 +486,7 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--conditioning_image_column",
         type=str,
-        default="conditioning_image",
+        default="condtioning_image",
         help="The column of the dataset containing the controlnet conditioning image.",
     )
     parser.add_argument(
@@ -617,18 +617,18 @@ def make_train_dataset(args, tokenizer, accelerator):
     # Get the datasets: you can either provide your own training and evaluation files (see below)
     # or specify a Dataset from the hub (the dataset will be downloaded automatically from the datasets Hub).
 
-    # In distributed training, the load_dataset function guarantees that only one local process can concurrently
+    # In distributed training, the load_from_disk function guarantees that only one local process can concurrently
     # download the dataset.
     if args.dataset_name is not None:
         # Downloading and loading a dataset from the hub.
-        dataset = load_dataset(
+        dataset = load_from_disk(
             args.dataset_name,
             args.dataset_config_name,
             cache_dir=args.cache_dir,
         )
     else:
         if args.train_data_dir is not None:
-            dataset = load_dataset(
+            dataset = load_from_disk(
                 args.train_data_dir,
                 cache_dir=args.cache_dir,
             )
@@ -637,7 +637,7 @@ def make_train_dataset(args, tokenizer, accelerator):
 
     # Preprocessing the datasets.
     # We need to tokenize inputs and targets.
-    column_names = dataset["train"].column_names
+    column_names = dataset.column_names
 
     # 6. Get the column names for input/target.
     if args.image_column is None:
@@ -692,7 +692,7 @@ def make_train_dataset(args, tokenizer, accelerator):
     image_transforms = transforms.Compose(
         [
             transforms.Resize(args.resolution, interpolation=transforms.InterpolationMode.BILINEAR),
-            transforms.CenterCrop(args.resolution),
+            # transforms.CenterCrop(args.resolution),
             transforms.ToTensor(),
             transforms.Normalize([0.5], [0.5]),
         ]
@@ -701,7 +701,7 @@ def make_train_dataset(args, tokenizer, accelerator):
     conditioning_image_transforms = transforms.Compose(
         [
             transforms.Resize(args.resolution, interpolation=transforms.InterpolationMode.BILINEAR),
-            transforms.CenterCrop(args.resolution),
+            # transforms.CenterCrop(args.resolution),
             transforms.ToTensor(),
         ]
     )
@@ -715,19 +715,23 @@ def make_train_dataset(args, tokenizer, accelerator):
 
     with accelerator.main_process_first():
         if args.max_train_samples is not None:
-            dataset["train"] = dataset["train"].shuffle(seed=args.seed).select(range(args.max_train_samples))
+            dataset = dataset.shuffle(seed=args.seed).select(range(args.max_train_samples))
         # Set the training transforms
-        train_dataset = dataset["train"].with_transform(preprocess_train)
+        train_dataset = dataset.with_transform(preprocess_train)
 
     return train_dataset
 
 
 def prepare_mask_and_masked_image(image, mask):
-    image = np.array(image.convert("RGB"))
+    image = np.array(image)
     image = image[None].transpose(0, 3, 1, 2)
     image = torch.from_numpy(image).to(dtype=torch.float32) / 127.5 - 1.0
-
-    mask = np.array(mask.convert("L"))
+    # mask is 4 channel tensor, extract the last channel which is mask
+    if mask.mode == 'RGBA':
+        mask = mask.split()[-1]  # Get alpha channel
+    else:
+        mask = mask.convert("L")
+    mask = np.array(mask)
     mask = mask.astype(np.float32) / 255.0
     mask = mask[None, None]
     mask[mask < 0.5] = 0
@@ -786,7 +790,7 @@ def collate_fn(examples):
     image_transforms = transforms.Compose(
         [
             transforms.Resize(args.resolution, interpolation=transforms.InterpolationMode.BILINEAR),
-            transforms.CenterCrop(args.resolution),
+            # transforms.CenterCrop(args.resolution),
             transforms.ToTensor(),
             transforms.Normalize([0.5], [0.5]),
         ]
@@ -795,7 +799,7 @@ def collate_fn(examples):
     conditioning_image_transforms = transforms.Compose(
         [
             transforms.Resize(args.resolution, interpolation=transforms.InterpolationMode.BILINEAR),
-            transforms.CenterCrop(args.resolution),
+            # transforms.CenterCrop(args.resolution),
             transforms.ToTensor(),
         ]
     )
