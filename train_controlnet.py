@@ -253,8 +253,8 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--pretrained_model_name_or_path",
         type=str,
-        default='stable-diffusion-2-inpainting',
-        required=True,
+        default='stabilityai/stable-diffusion-2-inpainting',
+        required=False,
         help="Path to pretrained model or model identifier from huggingface.co/models.",
     )
     parser.add_argument(
@@ -624,13 +624,13 @@ def make_train_dataset(args, tokenizer, accelerator):
         dataset = load_from_disk(
             args.dataset_name,
             args.dataset_config_name,
-            cache_dir=args.cache_dir,
+            # cache_dir=args.cache_dir,
         )
     else:
         if args.train_data_dir is not None:
             dataset = load_from_disk(
                 args.train_data_dir,
-                cache_dir=args.cache_dir,
+                # cache_dir=args.cache_dir,
             )
         # See more about loading custom images at
         # https://huggingface.co/docs/datasets/v2.0.0/en/dataset_script
@@ -1257,3 +1257,4 @@ def main(args):
 if __name__ == "__main__":
     args = parse_args()
     main(args)
+
