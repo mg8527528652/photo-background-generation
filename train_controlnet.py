@@ -746,7 +746,9 @@ def prepare_mask_and_masked_image(image, mask):
 def collate_fn(examples):
 
     pixel_values = [example["pixel_values"].convert("RGB") for example in examples]
-    conditioning_images = [ImageOps.invert(example["conditioning_pixel_values"].convert("RGB")) for example in examples]
+    # conditioning images are 4 channel RGBA PIL images, extract the last channel which is mask
+    conditioning_images = [example["conditioning_pixel_values"].split()[-1].convert("RGB") for example in examples]
+    conditioning_images = [ImageOps.invert(example) for example in conditioning_images]
     masks = []
     masked_images = []
 
