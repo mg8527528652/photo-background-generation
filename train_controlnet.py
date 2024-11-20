@@ -765,9 +765,9 @@ def collate_fn(examples):
         # dim[dim_min_ind] = int(ratio * image.shape[0:2][1-dim_min_ind])
         # dim = tuple(dim)
 
-        # # resize image
-        # image = cv2.resize(image, dim, interpolation = cv2.INTER_AREA)
-        # mask = cv2.resize(mask, dim, interpolation = cv2.INTER_AREA)
+        # resize image
+        image = cv2.resize(image, (args.resolution, args.resolution), interpolation = cv2.INTER_AREA)
+        mask = cv2.resize(mask, (args.resolution, args.resolution), interpolation = cv2.INTER_AREA)
         # max_x = image.shape[1] - 512
         # max_y = image.shape[0] - 512
         # x = np.random.randint(0, max_x)
