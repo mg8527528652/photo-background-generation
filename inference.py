@@ -14,7 +14,8 @@ import requests
 from io import BytesIO
 from PIL import Image, ImageOps
 import numpy as np
-
+import os
+import json
 # Helper function to import the correct text encoder based on model architecture
 def import_model_class_from_model_name_or_path(pretrained_model_name_or_path: str, revision: str):
     text_encoder_config = PretrainedConfig.from_pretrained(
@@ -160,9 +161,9 @@ def generate_image(
         fg_mask = remover.process(img, type='map')
         mask = ImageOps.invert(fg_mask)
     else:
-        mask = img.split()[-1].convert("RGB")
+        mask = img.split()[-1].convert("BGR")
         mask = ImageOps.invert(mask)
-
+    
     # Generate image
     generator = torch.Generator(device=device).manual_seed(seed)
     with torch.autocast(device):
@@ -184,9 +185,9 @@ def generate_image(
         controlnet_image.save(save_path)
     
     # Generate and return foreground mask
-    # controlnet_fg_mask = remover.process(controlnet_image, type='map')
+    controlnet_fg_mask = remover.process(controlnet_image, type='map')
     
-    return controlnet_image
+    return controlnet_image, controlnet_fg_mask
 
 def calculate_expansion(original_mask, generated_mask):
     """
@@ -202,12 +203,17 @@ def calculate_expansion(original_mask, generated_mask):
 if __name__ == "__main__":
     # Example usage
     controlnet_path = '/home/ubuntu/Desktop/mayank_gaur/photo-background-generation/controlnet-model/checkpoint-35000/controlnet'
-    image_url = '/home/ubuntu/Desktop/mayank_gaur/training_data/alphas/198_one_person_standing_in_beach.png'
-    prompt = 'A person with a guitar stands on a wooden boardwalk facing a serene beach. The sandy shore stretches towards an azure ocean under a partly cloudy sky. In the background, there are several straw beach umbrellas and a small white building with a thatched roof, providing a tranquil and picturesque seaside setting.'
-    
-    generated_image = generate_image(
-        image_url,
-        prompt,
-        controlnet_path,
-        save_path='output.png'
-    )
+    images_path = '/home/ubuntu/Desktop/mayank_gaur/photo-background-generation/images'
+    prompts_json_path = '/home/ubuntu/Desktop/mayank_gaur/photo-background-generation/prompts.json'
+    save_path = '/home/ubuntu/Desktop/mayank_gaur/photo-background-generation/outputs'
+
+    for image_name, prompt_name  in zip(images_path, prompts_json_path):
+        with open(prompt_name, 'r') as f:
+            prompt = json.load(f)['bg_label']
+        image_path = os.path.join(images_path, image_name)
+        generated_image, generated_mask = generate_image(
+            image_path,
+            prompt,
+            controlnet_path,
+            save_path=os.path.join(save_path, os.path.basename(image_path))
+        )
