@@ -756,29 +756,29 @@ def collate_fn(examples):
     for i in range(len(pixel_values)):
         image = np.array(pixel_values[i])
         mask = np.array(conditioning_images[i])
-        dim_min_ind = np.argmin(image.shape[0:2])
-        dim = [0, 0]
+        # dim_min_ind = np.argmin(image.shape[0:2])
+        # dim = [0, 0]
 
-        resize_len = 768.0
-        ratio = resize_len / image.shape[0:2][dim_min_ind]
-        dim[1-dim_min_ind] = int(resize_len)
-        dim[dim_min_ind] = int(ratio * image.shape[0:2][1-dim_min_ind])
-        dim = tuple(dim)
+        # resize_len = 768.0
+        # ratio = resize_len / image.shape[0:2][dim_min_ind]
+        # dim[1-dim_min_ind] = int(resize_len)
+        # dim[dim_min_ind] = int(ratio * image.shape[0:2][1-dim_min_ind])
+        # dim = tuple(dim)
 
-        # resize image
-        image = cv2.resize(image, dim, interpolation = cv2.INTER_AREA)
-        mask = cv2.resize(mask, dim, interpolation = cv2.INTER_AREA)
-        max_x = image.shape[1] - 512
-        max_y = image.shape[0] - 512
-        x = np.random.randint(0, max_x)
-        y = np.random.randint(0, max_y)
-        image = image[y: y + 512, x: x + 512]
-        mask = mask[y: y + 512, x: x + 512]
+        # # resize image
+        # image = cv2.resize(image, dim, interpolation = cv2.INTER_AREA)
+        # mask = cv2.resize(mask, dim, interpolation = cv2.INTER_AREA)
+        # max_x = image.shape[1] - 512
+        # max_y = image.shape[0] - 512
+        # x = np.random.randint(0, max_x)
+        # y = np.random.randint(0, max_y)
+        # image = image[y: y + 512, x: x + 512]
+        # mask = mask[y: y + 512, x: x + 512]
 
-        # fix for bluish outputs
-        r= np.copy(image[:,:,0])
-        image[:,:,0] = image[:,:,2]
-        image[:,:,2] = r
+        # # fix for bluish outputs
+        # r= np.copy(image[:,:,0])
+        # image[:,:,0] = image[:,:,2]
+        # image[:,:,2] = r
         image = Image.fromarray(image)
         b, g, r = image.split()
         image = Image.merge("RGB", (r, g, b))
