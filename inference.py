@@ -167,6 +167,7 @@ def generate_image(
             mask_image=mask,
             control_image=mask,
             num_images_per_prompt=1,
+            strength=1.0,
             generator=generator,
             num_inference_steps=20,
             guess_mode=False,
