@@ -355,7 +355,7 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--learning_rate",
         type=float,
-        default=1e-5,
+        default=1e-4,
         help="Initial learning rate (after the potential warmup period) to use.",
     )
     parser.add_argument(
@@ -1028,6 +1028,9 @@ def main(args):
         weight_decay=args.adam_weight_decay,
         eps=args.adam_epsilon,
     )
+    optimizer.learning_rate.assign(1e-4)  # For newer versions of TensorFlow/PyTorch
+
+
 
     train_dataset = make_train_dataset(args, tokenizer, accelerator)
 
@@ -1145,7 +1148,8 @@ def main(args):
     for epoch in range(first_epoch, args.num_train_epochs):
         try:
             for param_group in optimizer.param_groups:
-                param_group['lr'] = 0.00001
+                param_group['lr'] = args.learning_rate
+            optimizer.learning_rate.assign(args.learning_rate)  # For newer versions of TensorFlow/PyTorch
             for step, batch in enumerate(train_dataloader):
                 try:
                     with accelerator.accumulate(controlnet):
