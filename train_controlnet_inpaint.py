@@ -241,7 +241,7 @@ def parse_args(input_args=None):
         "--pretrained_model_name_or_path",
         type=str,
         default='stabilityai/stable-diffusion-2-inpainting',
-        required=True,
+        required=False,
         help="Path to pretrained model or model identifier from huggingface.co/models.",
     )
     parser.add_argument(
@@ -290,7 +290,7 @@ def parse_args(input_args=None):
         ),
     )
     parser.add_argument(
-        "--train_batch_size", type=int, default=4, help="Batch size (per device) for the training dataloader."
+        "--train_batch_size", type=int, default=1, help="Batch size (per device) for the training dataloader."
     )
     parser.add_argument("--num_train_epochs", type=int, default=1)
     parser.add_argument(
@@ -609,20 +609,20 @@ def make_train_dataset(args, tokenizer, accelerator):
         dataset = load_from_disk(
             args.dataset_name,
             args.dataset_config_name,
-            cache_dir=args.cache_dir,
+            # cache_dir=args.cache_dir,
         )
     else:
         if args.train_data_dir is not None:
             dataset = load_from_disk(
                 args.train_data_dir,
-                cache_dir=args.cache_dir,
+                # cache_dir=args.cache_dir,
             )
         # See more about loading custom images at
         # https://huggingface.co/docs/datasets/v2.0.0/en/dataset_script
 
     # Preprocessing the datasets.
     # We need to tokenize inputs and targets.
-    column_names = dataset["train"].column_names
+    column_names = dataset.column_names
 
     # 6. Get the column names for input/target.
     if args.image_column is None:
@@ -700,9 +700,9 @@ def make_train_dataset(args, tokenizer, accelerator):
 
     with accelerator.main_process_first():
         if args.max_train_samples is not None:
-            dataset["train"] = dataset["train"].shuffle(seed=args.seed).select(range(args.max_train_samples))
+            dataset = dataset.shuffle(seed=args.seed).select(range(args.max_train_samples))
         # Set the training transforms
-        train_dataset = dataset["train"].with_transform(preprocess_train)
+        train_dataset = dataset.with_transform(preprocess_train)
 
     return train_dataset
 
@@ -749,7 +749,7 @@ def collate_fn(examples):
         dim_min_ind = np.argmin(image.shape[0:2])
         dim = [0, 0]
 
-        resize_len = 768.0
+        resize_len = 1024.0
         ratio = resize_len / image.shape[0:2][dim_min_ind]
         dim[1-dim_min_ind] = int(resize_len)
         dim[dim_min_ind] = int(ratio * image.shape[0:2][1-dim_min_ind])
@@ -758,12 +758,12 @@ def collate_fn(examples):
         # resize image
         image = cv2.resize(image, dim, interpolation = cv2.INTER_AREA)
         mask = cv2.resize(mask, dim, interpolation = cv2.INTER_AREA)
-        max_x = image.shape[1] - 512
-        max_y = image.shape[0] - 512
-        x = np.random.randint(0, max_x)
-        y = np.random.randint(0, max_y)
-        image = image[y: y + 512, x: x + 512]
-        mask = mask[y: y + 512, x: x + 512]
+        # max_x = image.shape[1] - 512
+        # max_y = image.shape[0] - 512
+        # x = np.random.randint(0, max_x)
+        # y = np.random.randint(0, max_y)
+        # image = image[y: y + 512, x: x + 512]
+        # mask = mask[y: y + 512, x: x + 512]
 
         # fix for bluish outputs
         r = np.copy(image[:,:,0])
@@ -773,6 +773,7 @@ def collate_fn(examples):
         b, g, r = image.split()
         image = Image.merge("RGB", (r, g, b))
         pixel_values[i] = image
+
         conditioning_images[i] = Image.composite(image, Image.fromarray(mask), Image.fromarray(mask).convert('L')).convert('RGB')
 
 
