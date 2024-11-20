@@ -154,9 +154,14 @@ def generate_image(
     img = resize_with_padding(img, (512, 512))
     
     # Generate foreground mask
-    remover = Remover(mode='base')
-    fg_mask = remover.process(img, type='map')
-    mask = ImageOps.invert(fg_mask)
+    # if image has transparent background, use mode='base' extract mask and convert it RGB
+    if img.mode != 'RGBA':
+        remover = Remover(mode='base')
+        fg_mask = remover.process(img, type='map')
+        mask = ImageOps.invert(fg_mask)
+    else:
+        mask = img.split()[-1].convert("RGB")
+        mask = ImageOps.invert(mask)
     
     # Generate image
     generator = torch.Generator(device=device).manual_seed(seed)
