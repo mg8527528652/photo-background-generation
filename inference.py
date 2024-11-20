@@ -162,7 +162,7 @@ def generate_image(
     else:
         mask = img.split()[-1].convert("RGB")
         mask = ImageOps.invert(mask)
-    
+
     # Generate image
     generator = torch.Generator(device=device).manual_seed(seed)
     with torch.autocast(device):
@@ -184,9 +184,9 @@ def generate_image(
         controlnet_image.save(save_path)
     
     # Generate and return foreground mask
-    controlnet_fg_mask = remover.process(controlnet_image, type='map')
+    # controlnet_fg_mask = remover.process(controlnet_image, type='map')
     
-    return controlnet_image, controlnet_fg_mask
+    return controlnet_image
 
 def calculate_expansion(original_mask, generated_mask):
     """
@@ -202,10 +202,10 @@ def calculate_expansion(original_mask, generated_mask):
 if __name__ == "__main__":
     # Example usage
     controlnet_path = '/home/ubuntu/Desktop/mayank_gaur/photo-background-generation/controlnet-model/checkpoint-35000/controlnet'
-    image_url = 'https://images.fineartamerica.com/images/artworkimages/mediumlarge/1/swan-pond-david-stasiak.jpg'
-    prompt = 'A dark swan in a bedroom'
+    image_url = '/home/ubuntu/Desktop/mayank_gaur/training_data/alphas/198_one_person_standing_in_beach.png'
+    prompt = 'A person with a guitar stands on a wooden boardwalk facing a serene beach. The sandy shore stretches towards an azure ocean under a partly cloudy sky. In the background, there are several straw beach umbrellas and a small white building with a thatched roof, providing a tranquil and picturesque seaside setting.'
     
-    generated_image, generated_mask = generate_image(
+    generated_image = generate_image(
         image_url,
         prompt,
         controlnet_path,
