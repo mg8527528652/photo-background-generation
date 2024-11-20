@@ -863,6 +863,40 @@ def collate_fn(examples):
     }
 
 
+def save_image_tensor(image, path):
+    # Add batch dimension if not present
+    if image.dim() == 3:
+        image = image.unsqueeze(0)
+        
+    # Convert to normalized range [0,1]
+    image = (image / 2 + 0.5).clamp(0, 1)
+    
+    # Convert to numpy and then uint8 format expected by PIL
+    image = image.detach().cpu().permute(0, 2, 3, 1).numpy()
+    image = (image * 255).astype(np.uint8)
+    
+    # Handle single channel images
+    if image.shape[3] == 1:
+        image = image.squeeze(3)
+    
+    image = Image.fromarray(image[0])
+    
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    image.save(path)
+
+def save_image_tensor_batch(batch, save_dir):
+    for i in range(len(batch)):
+        save_image_tensor(batch[i], os.path.join(save_dir, f"{i}.png"))
+
+def save_batch_images(batch, save_dir): #batch is a dict with keys "pixel_values", "conditioning_pixel_values", "masks", "masked_images"
+    # value of this dict is a tensor of shape (batch_size, 3, 512, 512)
+    batch_size = len(batch["pixel_values"])
+    for i in range(batch_size):
+        save_image_tensor(batch["pixel_values"][i], os.path.join(save_dir, f"pixel_values_{i}.png"))
+        save_image_tensor(batch["conditioning_pixel_values"][i], os.path.join(save_dir, f"conditioning_pixel_values_{i}.png"))
+        save_image_tensor(batch["masks"][i], os.path.join(save_dir, f"masks_{i}.png"))
+        save_image_tensor(batch["masked_images"][i], os.path.join(save_dir, f"masked_images_{i}.png"))
+
 def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
 
