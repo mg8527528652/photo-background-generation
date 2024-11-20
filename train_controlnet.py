@@ -116,9 +116,9 @@ def log_validation(vae, text_encoder, tokenizer, unet, controlnet, args, acceler
         validation_inpainting_images = args.validation_inpainting_image
         validation_prompts = args.validation_prompt
     elif len(args.validation_image) == 1:
-        validation_images = args.validation_image * len(args.validation_prompt)
-        validation_inpainting_images = args.validation_inpainting_image * len(args.validation_prompt)
-        validation_prompts = args.validation_prompt
+        validation_images = args.validation_image * len(args.num_validation_images)
+        validation_inpainting_images = args.validation_inpainting_image * len(args.num_validation_images)
+        validation_prompts = args.validation_prompt * len(args.num_validation_images)
     elif len(args.validation_prompt) == 1:
         validation_images = args.validation_image
         validation_inpainting_images = args.validation_inpainting_image
@@ -131,10 +131,12 @@ def log_validation(vae, text_encoder, tokenizer, unet, controlnet, args, acceler
     image_logs = []
 
     for validation_prompt, validation_image, validation_inpainting_image in zip(validation_prompts, validation_images, validation_inpainting_images):
-        validation_image = Image.open(validation_image).convert("RGB")
+        mask = Image.open(mask).split()[-1].convert("RGB")
         validation_image = resize_with_padding(validation_image, (512,512))
-        validation_inpainting_image = Image.open(validation_inpainting_image).convert("RGB")
-        validation_inpainting_image = resize_with_padding(validation_inpainting_image, (512,512))
+        img = Image.open(validation_image).convert("RGB")
+        img = resize_with_padding(validation_inpainting_image, (512,512))
+        #  create masked image using funcction defined later in this file
+        mask, masked_image = prepare_mask_and_masked_image(validation_inpainting_image, validation_image)
         images = []
 
         for _ in range(args.num_validation_images):
@@ -144,7 +146,7 @@ def log_validation(vae, text_encoder, tokenizer, unet, controlnet, args, acceler
                 #control_image.paste(validation_inpainting_image, box=(0,0), mask=ImageOps.invert(control_image).convert('L'))
 #                control_image.save('cont_img_val.jpeg')
                 image = pipeline(
-                    prompt=validation_prompt, image=validation_inpainting_image, mask_image=mask, control_image=control_image, num_inference_steps=20, guess_mode=False, controlnet_conditioning_scale=1.0, generator=generator
+                    prompt=validation_prompt, image=masked_image, mask_image=mask, control_image=mask, num_inference_steps=20, guess_mode=False, controlnet_conditioning_scale=1.0, generator=generator
                 ).images[0]
 
             images.append(image)
@@ -722,6 +724,40 @@ def make_train_dataset(args, tokenizer, accelerator):
     return train_dataset
 
 
+def resize_with_padding_cv2(img, expected_size):
+    # Convert PIL image to cv2 format if needed
+    if not isinstance(img, np.ndarray):
+        img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+    
+    h, w = img.shape[:2]
+    desired_w, desired_h = expected_size
+    
+    # Calculate scaling factor to maintain aspect ratio
+    aspect = w/h
+    if aspect > desired_w/desired_h: # wider than tall
+        new_w = desired_w
+        new_h = int(new_w/aspect)
+    else: # taller than wide
+        new_h = desired_h
+        new_w = int(new_h*aspect)
+    
+    # Resize image while maintaining aspect ratio
+    resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    
+    # Calculate padding
+    delta_w = desired_w - new_w
+    delta_h = desired_h - new_h
+    top = delta_h//2
+    bottom = delta_h - top
+    left = delta_w//2
+    right = delta_w - left
+    
+    # Add padding with black color (0,0,0)
+    padded = cv2.copyMakeBorder(resized, top, bottom, left, right, 
+                               cv2.BORDER_CONSTANT, value=[0,0,0])
+    
+    return padded
+
 def prepare_mask_and_masked_image(image, mask):
     image = np.array(image)
     image = image[None].transpose(0, 3, 1, 2)
@@ -766,8 +802,8 @@ def collate_fn(examples):
         # dim = tuple(dim)
 
         # resize image
-        image = cv2.resize(image, (args.resolution, args.resolution), interpolation = cv2.INTER_AREA)
-        mask = cv2.resize(mask, (args.resolution, args.resolution), interpolation = cv2.INTER_AREA)
+        image = resize_with_padding_cv2(image, (args.resolution, args.resolution))
+        mask = resize_with_padding_cv2(mask, (args.resolution, args.resolution))
         # max_x = image.shape[1] - 512
         # max_y = image.shape[0] - 512
         # x = np.random.randint(0, max_x)
@@ -1259,4 +1295,6 @@ def main(args):
 if __name__ == "__main__":
     args = parse_args()
     main(args)
+
+
 
