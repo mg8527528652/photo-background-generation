@@ -130,13 +130,13 @@ def log_validation(vae, text_encoder, tokenizer, unet, controlnet, args, acceler
 
     image_logs = []
 
-    for validation_prompt, validation_image, validation_inpainting_image in zip(validation_prompts, validation_images, validation_inpainting_images):
-        mask = Image.open(mask).split()[-1].convert("RGB")
-        validation_image = resize_with_padding(validation_image, (512,512))
+    for validation_prompt, validation_image in zip(validation_prompts, validation_images):
+        mask = Image.open(validation_image).split()[-1].convert("RGB")
+        mask = resize_with_padding(mask, (512,512))
         img = Image.open(validation_image).convert("RGB")
-        img = resize_with_padding(validation_inpainting_image, (512,512))
+        img = resize_with_padding(img, (512,512))
         #  create masked image using funcction defined later in this file
-        mask, masked_image = prepare_mask_and_masked_image(validation_inpainting_image, validation_image)
+        # mask, masked_image = prepare_mask_and_masked_image(validation_inpainting_image, validation_image)
         images = []
 
         for _ in range(args.num_validation_images):
@@ -146,7 +146,7 @@ def log_validation(vae, text_encoder, tokenizer, unet, controlnet, args, acceler
                 #control_image.paste(validation_inpainting_image, box=(0,0), mask=ImageOps.invert(control_image).convert('L'))
 #                control_image.save('cont_img_val.jpeg')
                 image = pipeline(
-                    prompt=validation_prompt, image=masked_image, mask_image=mask, control_image=mask, num_inference_steps=20, guess_mode=False, controlnet_conditioning_scale=1.0, generator=generator
+                    prompt=validation_prompt, image=   img  , mask_image=mask, control_image=mask, num_inference_steps=20, guess_mode=False, controlnet_conditioning_scale=1.0, generator=generator
                 ).images[0]
 
             images.append(image)
@@ -305,7 +305,7 @@ def parse_args(input_args=None):
         ),
     )
     parser.add_argument(
-        "--train_batch_size", type=int, default=1, help="Batch size (per device) for the training dataloader."
+        "--train_batch_size", type=int, default=4, help="Batch size (per device) for the training dataloader."
     )
     parser.add_argument("--num_train_epochs", type=int, default=1)
     parser.add_argument(
@@ -317,7 +317,7 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--checkpointing_steps",
         type=int,
-        default=5,
+        default=1000,
         help=(
             "Save a checkpoint of the training state every X updates. Checkpoints can be used for resuming training via `--resume_from_checkpoint`. "
             "In the case that the checkpoint is better than the final trained model, the checkpoint can also be used for inference."
@@ -552,13 +552,13 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--num_validation_images",
         type=int,
-        default=4,
+        default=2,
         help="Number of images to be generated for each `--validation_image`, `--validation_prompt` pair",
     )
     parser.add_argument(
         "--validation_steps",
         type=int,
-        default=100,
+        default=5,
         help=(
             "Run validation every X steps. Validation consists of running the prompt"
             " `args.validation_prompt` multiple times: `args.num_validation_images`"
