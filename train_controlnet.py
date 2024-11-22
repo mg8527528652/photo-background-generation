@@ -367,7 +367,7 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--lr_scheduler",
         type=str,
-        default="constant",
+        default="cosine",
         help=(
             'The scheduler type to use. Choose between ["linear", "cosine", "cosine_with_restarts", "polynomial",'
             ' "constant", "constant_with_warmup"]'
@@ -726,8 +726,8 @@ def make_train_dataset(args, tokenizer, accelerator):
 
 def resize_with_padding_cv2(img, expected_size):
     # Convert PIL image to cv2 format if needed
-    if not isinstance(img, np.ndarray):
-        img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+    # if not isinstance(img, np.ndarray):
+    #     img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
     
     h, w = img.shape[:2]
     desired_w, desired_h = expected_size
@@ -802,8 +802,8 @@ def collate_fn(examples):
         # dim = tuple(dim)
 
         # resize image
-        image = resize_with_padding_cv2(image, (args.resolution, args.resolution))
-        mask = resize_with_padding_cv2(mask, (args.resolution, args.resolution))
+        # image = resize_with_padding_cv2(image, (args.resolution, args.resolution))
+        # mask = resize_with_padding_cv2(mask, (args.resolution, args.resolution))
         # max_x = image.shape[1] - 512
         # max_y = image.shape[0] - 512
         # x = np.random.randint(0, max_x)
@@ -816,8 +816,8 @@ def collate_fn(examples):
         # image[:,:,0] = image[:,:,2]
         # image[:,:,2] = r
         image = Image.fromarray(image)
-        b, g, r = image.split()
-        image = Image.merge("RGB", (r, g, b))
+        # b, g, r = image.split()
+        # image = Image.merge("RGB", (r, g, b))
         pixel_values[i] = image
 
         conditioning_images[i] = Image.fromarray(mask)
@@ -1062,7 +1062,7 @@ def main(args):
         weight_decay=args.adam_weight_decay,
         eps=args.adam_epsilon,
     )
-    optimizer.learning_rate.assign(1e-4)  # For newer versions of TensorFlow/PyTorch
+    # optimizer.learning_rate.assign(1e-4)  # For newer versions of TensorFlow/PyTorch
 
 
 
@@ -1183,7 +1183,6 @@ def main(args):
         try:
             for param_group in optimizer.param_groups:
                 param_group['lr'] = args.learning_rate
-            optimizer.learning_rate.assign(args.learning_rate)  # For newer versions of TensorFlow/PyTorch
             for step, batch in enumerate(train_dataloader):
                 try:
                     with accelerator.accumulate(controlnet):
