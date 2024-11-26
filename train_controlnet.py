@@ -298,20 +298,20 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--resolution",
         type=int,
-        default=512,
+        default=768,
         help=(
             "The resolution for input images, all the images in the train/validation dataset will be resized to this"
             " resolution"
         ),
     )
     parser.add_argument(
-        "--train_batch_size", type=int, default=4, help="Batch size (per device) for the training dataloader."
+        "--train_batch_size", type=int, default=2, help="Batch size (per device) for the training dataloader."
     )
     parser.add_argument("--num_train_epochs", type=int, default=1)
     parser.add_argument(
         "--max_train_steps",
         type=int,
-        default=70000,
+        default=100000,
         help="Total number of training steps to perform.  If provided, overrides num_train_epochs.",
     )
     parser.add_argument(
@@ -475,7 +475,7 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--train_data_dir",
         type=str,
-        default='/home/ubuntu/Desktop/mayank_gaur/training_data/arrow_files',
+        default='/home/ubuntu/Desktop/mayank_gaur/training_data/arrow',
         help=(
             "A folder containing the training data. Folder contents must follow the structure described in"
             " https://huggingface.co/docs/datasets/image_dataset#imagefolder. In particular, a `metadata.jsonl` file"
@@ -802,8 +802,8 @@ def collate_fn(examples):
         # dim = tuple(dim)
 
         # resize image
-        # image = resize_with_padding_cv2(image, (args.resolution, args.resolution))
-        # mask = resize_with_padding_cv2(mask, (args.resolution, args.resolution))
+        image = resize_with_padding_cv2(image, (args.resolution, args.resolution))
+        mask = resize_with_padding_cv2(mask, (args.resolution, args.resolution))
         # max_x = image.shape[1] - 512
         # max_y = image.shape[0] - 512
         # x = np.random.randint(0, max_x)

@@ -74,7 +74,34 @@ def obj_expansion(mask_ref, mask_pred):
     expansion = area_pred - area_ref
     return expansion
 
-def setup_pipeline(controlnet_path, device='cuda'):
+
+def crop_image_to_nearest_8_multiple(pil_image):
+    """
+    Crops a PIL image to the nearest multiple of 8 pixels in both dimensions.
+    
+    Args:
+        pil_image: PIL.Image object
+        
+    Returns:
+        PIL.Image: Cropped image with dimensions that are multiples of 8
+    """
+    # Get image dimensions
+    width, height = pil_image.size
+    
+    # Calculate the deltas (amount to crop)
+    delta_height = height % 8
+    delta_width = width % 8
+    
+    # Calculate crop box coordinates (left, top, right, bottom)
+    left = delta_width // 2
+    top = delta_height // 2
+    right = width - (delta_width - delta_width // 2)
+    bottom = height - (delta_height - delta_height // 2)
+    # Crop and return the image
+    return pil_image.crop((left, top, right, bottom))
+
+
+def setup_pipeline ( controlnet_path, device='cuda'):
     """
     Set up the Stable Diffusion ControlNet pipeline
     Args:
@@ -120,12 +147,47 @@ def setup_pipeline(controlnet_path, device='cuda'):
     
     return pipeline
 
+
+
+
+def resize_with_aspect_ratio(image, width=None, height=None):
+    """
+    Resize a PIL image maintaining aspect ratio to specified width or height.
+    At least one of width or height must be specified.
+    
+    Args:
+        image: PIL.Image object
+        width: Target width in pixels, or None
+        height: Target height in pixels, or None
+        
+    Returns:
+        PIL.Image: Resized image
+    """
+    if width is None and height is None:
+        raise ValueError("At least one of width or height must be specified")
+        
+    original_width, original_height = image.size
+    
+    if width is not None:
+        # Calculate height based on width
+        aspect_ratio = original_height / original_width
+        new_height = int(aspect_ratio * width)
+        new_width = width
+    else:
+        # Calculate width based on height
+        aspect_ratio = original_width / original_height
+        new_width = int(aspect_ratio * height)
+        new_height = height
+    
+    return image.resize((new_width, new_height), Image.LANCZOS)  # LANCZOS is the modern replacement for ANTIALIAS
+
+
 def generate_image(
     image_path,
     prompt,
     controlnet_path,
     save_path=None,
-    seed=13,
+    seed=4321,
     cond_scale=1.0,
     device='cuda'
 ):
@@ -144,16 +206,28 @@ def generate_image(
     """
     # Set up pipeline
     pipeline = setup_pipeline(controlnet_path, device)
-    
+ 
     # Load and prepare input image
     if image_path.startswith('http'):
         response = requests.get(image_path)
         img = Image.open(BytesIO(response.content))
     else:
         img = Image.open(image_path)
+
+    # img = resize_with_padding(img, (768, 768))
+    width, height = img.size
+    # resize the largest dim to 768, while maintaqing aspect ratio
+    if width > height:
+        img = resize_with_aspect_ratio(img, width=768)
+    elif height > width:
+        img = resize_with_aspect_ratio(img, height=768)
+    else:
+        img = resize_with_aspect_ratio(img, width=768)
+    img = crop_image_to_nearest_8_multiple(img)
+
+    width, height = img.size
     
-    img = resize_with_padding(img, (512, 512))
-    
+    print(width, height)
     # Generate foreground mask
     # if image has transparent background, use mode='base' extract mask and convert it RGB
     if img.mode != 'RGBA':
@@ -161,9 +235,8 @@ def generate_image(
         fg_mask = remover.process(img, type='map')
         mask = ImageOps.invert(fg_mask)
     else:
-        mask = img.split()[-1].convert("BGR")
+        mask = img.split()[-1].convert("RGB")
         mask = ImageOps.invert(mask)
-    
     # Generate image
     generator = torch.Generator(device=device).manual_seed(seed)
     with torch.autocast(device):
@@ -172,10 +245,12 @@ def generate_image(
             image=img,
             mask_image=mask,
             control_image=mask,
+            height = height,
+            width= width,
             num_images_per_prompt=1,
             strength=1.0,
             generator=generator,
-            num_inference_steps=20,
+            num_inference_steps=40,
             guess_mode=False,
             controlnet_conditioning_scale=cond_scale
         ).images[0]
@@ -185,9 +260,9 @@ def generate_image(
         controlnet_image.save(save_path)
     
     # Generate and return foreground mask
-    controlnet_fg_mask = remover.process(controlnet_image, type='map')
+    # controlnet_fg_mask = remover.process(controlnet_image, type='map')
     
-    return controlnet_image, controlnet_fg_mask
+    return controlnet_image
 
 def calculate_expansion(original_mask, generated_mask):
     """
@@ -202,18 +277,37 @@ def calculate_expansion(original_mask, generated_mask):
 
 if __name__ == "__main__":
     # Example usage
-    controlnet_path = '/home/ubuntu/Desktop/mayank_gaur/photo-background-generation/controlnet-model/checkpoint-35000/controlnet'
-    images_path = '/home/ubuntu/Desktop/mayank_gaur/photo-background-generation/images'
-    prompts_json_path = '/home/ubuntu/Desktop/mayank_gaur/photo-background-generation/prompts.json'
-    save_path = '/home/ubuntu/Desktop/mayank_gaur/photo-background-generation/outputs'
-
-    for image_name, prompt_name  in zip(images_path, prompts_json_path):
-        with open(prompt_name, 'r') as f:
-            prompt = json.load(f)['bg_label']
-        image_path = os.path.join(images_path, image_name)
-        generated_image, generated_mask = generate_image(
-            image_path,
-            prompt,
-            controlnet_path,
-            save_path=os.path.join(save_path, os.path.basename(image_path))
-        )
+    controlnet_path = '/home/ubuntu/Desktop/mayank_gaur/controlnet-model/checkpoint-91000/controlnet'
+    images_path = '/home/ubuntu/Desktop/mayank_gaur/BENCHMARK_DATASET/masks_sorted'
+    prompts_json_path = '/home/ubuntu/Desktop/mayank_gaur/BENCHMARK_DATASET/bg_prompts'
+    save_path = '/home/ubuntu/Desktop/mayank_gaur/photo-background-generation/outputs-v5-diff-re_91k'
+    os.makedirs(save_path, exist_ok=True)
+    for image_name  in os.listdir(images_path):
+        # try:
+        #     prompt_name = os.path.join(prompts_json_path, image_name.split('.')[0] + '.json')
+        #     with open(prompt_name, 'r') as f:
+        #         prompt = json.load(f)['bg_label']
+        #     image_path = os.path.join(images_path, image_name)
+        #     generated_image, generated_mask = generate_image(
+        #         image_path,
+        #         prompt,
+        #         controlnet_path,
+        #         save_path=os.path.join(save_path, os.path.basename(image_path))
+        #     )
+        # except Exception as e:
+        #     print(e)
+        #     continue
+        try:
+            prompt_name = os.path.join(prompts_json_path, image_name.split('.')[0] + '.json')
+            with open(prompt_name, 'r') as f:
+                prompt = json.load(f)['bg_label']
+            image_path = os.path.join(images_path, image_name)
+            generated_image = generate_image(
+                image_path,
+                prompt,
+                controlnet_path,
+                save_path=os.path.join(save_path, os.path.basename(image_path))
+             )
+        except Exception as e:
+            print(e)
+            continue
