@@ -16,6 +16,7 @@ from PIL import Image, ImageOps
 import numpy as np
 import os
 import json
+import cv2
 # Helper function to import the correct text encoder based on model architecture
 def import_model_class_from_model_name_or_path(pretrained_model_name_or_path: str, revision: str):
     text_encoder_config = PretrainedConfig.from_pretrained(
@@ -100,7 +101,17 @@ def crop_image_to_nearest_8_multiple(pil_image):
     # Crop and return the image
     return pil_image.crop((left, top, right, bottom))
 
-
+def crop_image_to_nearest_8_multiple_cv2(image):
+    if len(image.shape) == 2:
+        height, width = image.shape
+    else:   
+        height, width, _ = image.shape
+    # calculate the delta
+    delta_height = height % 8
+    delta_width = width % 8
+    # crop the image by delta_height / 2, from both top and bottom, and delta_width / 2, from both left and right
+    cropped_image = image[delta_height//2:height-(delta_height - delta_height//2), delta_width//2:width-(delta_width - delta_width//2)  ]
+    return cropped_image
 def setup_pipeline ( controlnet_path, device='cuda'):
     """
     Set up the Stable Diffusion ControlNet pipeline
@@ -181,6 +192,96 @@ def resize_with_aspect_ratio(image, width=None, height=None):
     
     return image.resize((new_width, new_height), Image.LANCZOS)  # LANCZOS is the modern replacement for ANTIALIAS
 
+def convert4ch_to_3ch(image_4ch):
+    # replace background by black and keep the foreground
+    image_3ch, mask = image_4ch[:, :, :3], image_4ch[:, :, 3]
+    mask = mask.reshape(mask.shape[0], mask.shape[1], 1)
+    mask = mask.astype(float) / 255.0
+    black_bg = np.zeros((image_3ch.shape[0], image_3ch.shape[1], 3), dtype=np.uint8)
+    image_3ch = black_bg * (1 - mask) + image_3ch * mask
+    return image_3ch
+
+
+
+def overlay_foreground(image_path, generated_image_path):
+    # Load images
+    img = cv2.imread(image_path, -1)
+    generated_image = cv2.imread(generated_image_path, -1)
+    
+    if img is None or generated_image is None:
+        raise ValueError("One of the image paths is invalid or the image could not be loaded.")
+    
+    if img.shape[2] < 4:
+        raise ValueError("The input image must have an alpha channel.")
+    
+    # Resize the input image to match the dimensions of the generated image
+    img = cv2.resize(img, (generated_image.shape[1], generated_image.shape[0]))
+    
+    # Extract the 3-channel RGB and alpha mask
+    img_3ch, mask = img[:, :, :3], img[:, :, 3]
+    
+    # Normalize the mask
+    mask = mask.astype(np.float32) / 255.0
+    mask = np.expand_dims(mask, axis=-1)  # Convert to 3D for broadcasting
+    
+    # Combine the images using the mask
+    overlaid_image = generated_image * (1 - mask) + mask * img_3ch
+    
+    # Ensure the pixel values are within the valid range
+    overlaid_image = np.clip(overlaid_image, 0, 255).astype(np.uint8)
+    # overlaid_image = cv2.cvtColor(overlaid_image, cv2.COLOR_RGB2BGR)
+    # img_3ch = cv2.cvtColor(img_3ch, cv2.COLOR_RGB2BGR)
+    # overlaid_image = np.hstack([img_3ch, overlaid_image])
+    return overlaid_image
+
+
+def generate_controlnet_image(image_path, pipeline, prompt, guidance_scale,  img, mask, height, width, device, seed, cond_scale, save_path=None):
+        """
+        Generate image using ControlNet pipeline
+        Args:
+            pipeline: ControlNet pipeline
+            prompt: Text prompt for generation
+            img: Input image
+            mask: Mask image
+            height: Output image height
+            width: Output image width 
+            device: Device to run inference on
+            seed: Random seed
+            cond_scale: ControlNet conditioning scale
+            save_path: Optional path to save generated image
+        Returns:
+            Generated image and overlaid result
+        """
+        generator = torch.Generator(device=device).manual_seed(seed)
+        negative_prompt="octane, random artifacts, extra legs, unwanted elements,bad anatomy, extra fingers, bad fingers, missing fingers, worst hands, improperly holding objects, cropped, blurry, low quality, bad hands, missing legs, missing arms, extra fingers, cg, 3d, unreal, error, out of frame, Cartoon, CGI, Render, 3D, Artwork, Illustration, 3D render, Cinema 4D, Artstation, Octane render, Painting, Oil painting, Anime, 2D, Sketch, <BadDream:1>, by <bad-artist:1>, <UnrealisticDream:1>, <bad_prompt_version2:1>, by <bad-artist-anime:1>, <easynegative:1>",
+
+        with torch.autocast(device):
+            controlnet_image = pipeline(
+                prompt=prompt,
+                image=img,
+                mask_image=mask,
+                control_image=mask,
+                guidance_scale = guidance_scale,
+                height = height,
+                negative_prompt = negative_prompt[0],
+                width= width,
+                num_images_per_prompt=1,
+                strength=1.0,
+                generator=generator,
+                num_inference_steps=40,
+                guess_mode=False,
+                controlnet_conditioning_scale=cond_scale
+            ).images[0]
+            if save_path:
+                controlnet_image.save(save_path)        
+
+        # overlay the foreground of original image with original image, ands keep background as generated image
+        # Convert fg_mask to proper transparency mask format
+        
+        over = overlay_foreground(image_path, save_path)
+        
+        return controlnet_image, over
+
 
 def generate_image(
     image_path,
@@ -235,34 +336,38 @@ def generate_image(
         fg_mask = remover.process(img, type='map')
         mask = ImageOps.invert(fg_mask)
     else:
-        mask = img.split()[-1].convert("RGB")
-        mask = ImageOps.invert(mask)
-    # Generate image
-    generator = torch.Generator(device=device).manual_seed(seed)
-    with torch.autocast(device):
-        controlnet_image = pipeline(
-            prompt=prompt,
-            image=img,
-            mask_image=mask,
-            control_image=mask,
-            height = height,
-            width= width,
-            num_images_per_prompt=1,
-            strength=1.0,
-            generator=generator,
-            num_inference_steps=40,
-            guess_mode=False,
-            controlnet_conditioning_scale=cond_scale
-        ).images[0]
+        fg_mask = img.split()[-1].convert("RGB")
+        mask = ImageOps.invert(fg_mask)
     
-    # Save if path provided
-    if save_path:
-        controlnet_image.save(save_path)
+    controlnet_image1, over1 = generate_controlnet_image(
+        image_path, pipeline, prompt, 10, img, mask, height, width, device, seed, 0.9, save_path
+    )
+    # controlnet_image3, over3 = generate_controlnet_image(
+    #     image_path,pipeline, prompt, 10, img, mask, height, width, device, seed, 0.75, save_path
+    # )
+    # controlnet_image4, over4 = generate_controlnet_image(
+    #     image_path,pipeline, prompt, 10, img, mask, height, width, device, seed, 0.85, save_path
+    # )
+    # controlnet_image5, over5 = generate_controlnet_image(
+    #     image_path,pipeline, prompt, 10, img, mask, height, width, device, seed, 0.9, save_path
+    # )
+    # controlnet_image6, over6 = generate_controlnet_image(
+    #     image_path,pipeline, prompt, 10, img, mask, height, width, device, seed, 1.0, save_path
+    # )
+    # over = np.hstack([over1, over3, over4, over5, over6])
+    # if save_path:
+    #     over.save(save_path)
     
-    # Generate and return foreground mask
+    
+    
+    # save the overlaid image
+    save_path_overlay = save_path.replace('.png', '_overlay.png')
+    # cv2.imwrite(save_path_overlay, over1)
+    cv2.imwrite(save_path, over1)
+        # Generate and return foreground mask
     # controlnet_fg_mask = remover.process(controlnet_image, type='map')
     
-    return controlnet_image
+    # return controlnet_image6
 
 def calculate_expansion(original_mask, generated_mask):
     """
@@ -277,37 +382,36 @@ def calculate_expansion(original_mask, generated_mask):
 
 if __name__ == "__main__":
     # Example usage
-    controlnet_path = '/home/ubuntu/Desktop/mayank_gaur/controlnet-model/checkpoint-91000/controlnet'
+    controlnet_pa = '/home/ubuntu/Desktop/mayank_gaur/controlnet-model'
     images_path = '/home/ubuntu/Desktop/mayank_gaur/BENCHMARK_DATASET/masks_sorted'
     prompts_json_path = '/home/ubuntu/Desktop/mayank_gaur/BENCHMARK_DATASET/bg_prompts'
-    save_path = '/home/ubuntu/Desktop/mayank_gaur/photo-background-generation/outputs-v5-diff-re_91k'
-    os.makedirs(save_path, exist_ok=True)
-    for image_name  in os.listdir(images_path):
-        # try:
-        #     prompt_name = os.path.join(prompts_json_path, image_name.split('.')[0] + '.json')
-        #     with open(prompt_name, 'r') as f:
-        #         prompt = json.load(f)['bg_label']
-        #     image_path = os.path.join(images_path, image_name)
-        #     generated_image, generated_mask = generate_image(
-        #         image_path,
-        #         prompt,
-        #         controlnet_path,
-        #         save_path=os.path.join(save_path, os.path.basename(image_path))
-        #     )
-        # except Exception as e:
-        #     print(e)
-        #     continue
+    save_pat = '/home/ubuntu/Desktop/mayank_gaur/photo-background-generation/outputs-v5-diff-re_91k_cn_0.6_75_0.85_0.9_1-neg_prompt'
+    os.makedirs(save_pat, exist_ok=True)
+    ckpt_list = ['91000']
+    # ckpt_list = ['70000','82000', '75000', '91000']
+    for ckpt in ckpt_list:
         try:
-            prompt_name = os.path.join(prompts_json_path, image_name.split('.')[0] + '.json')
-            with open(prompt_name, 'r') as f:
-                prompt = json.load(f)['bg_label']
-            image_path = os.path.join(images_path, image_name)
-            generated_image = generate_image(
-                image_path,
-                prompt,
-                controlnet_path,
-                save_path=os.path.join(save_path, os.path.basename(image_path))
-             )
+            controlnet_path = os.path.join(controlnet_pa, 'checkpoint-' + ckpt, 'controlnet')
+            print(controlnet_path)
+            save_path = os.path.join(save_pat, 'checkpoint-' + ckpt)
+            os.makedirs(save_path, exist_ok=True)   
+            for image_name  in os.listdir(images_path):
+                try:
+                    prompt_name = os.path.join(prompts_json_path, image_name.split('.')[0] + '.json')
+                    with open(prompt_name, 'r') as f:
+                        prompt = json.load(f)['bg_label']
+                    image_path = os.path.join(images_path, image_name)
+                    generated_image = generate_image(
+                        image_path,
+                        prompt,
+                        controlnet_path,
+                        save_path=os.path.join(save_path, os.path.basename(image_path))
+                    )
+                    
+                except Exception as e:
+                    print(e)
+                    continue
         except Exception as e:
             print(e)
             continue
+
