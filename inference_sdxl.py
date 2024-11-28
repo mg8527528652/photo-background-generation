@@ -6,7 +6,7 @@ from diffusers import (
     UNet2DConditionModel,
     UniPCMultistepScheduler,
 )
-from pipeline_controlnet_inpaint import StableDiffusionControlNetInpaintPipeline
+from pipeline_sdxl_inpaint import StableDiffusionXLInpaintPipeline
 from transformers import AutoTokenizer, PretrainedConfig
 from transparent_background import Remover
 import torch
@@ -18,11 +18,11 @@ import os
 import json
 import cv2
 # Helper function to import the correct text encoder based on model architecture
-def import_model_class_from_model_name_or_path(pretrained_model_name_or_path: str, revision: str):
+def import_model_class_from_model_name_or_path(
+    pretrained_model_name_or_path: str, revision: str = None, subfolder: str = "text_encoder"
+):
     text_encoder_config = PretrainedConfig.from_pretrained(
-        pretrained_model_name_or_path,
-        subfolder="text_encoder",
-        revision=revision,
+        pretrained_model_name_or_path, subfolder=subfolder, revision=revision
     )
     model_class = text_encoder_config.architectures[0]
 
@@ -30,10 +30,10 @@ def import_model_class_from_model_name_or_path(pretrained_model_name_or_path: st
         from transformers import CLIPTextModel
 
         return CLIPTextModel
-    elif model_class == "RobertaSeriesModelWithTransformation":
-        from diffusers.pipelines.alt_diffusion.modeling_roberta_series import RobertaSeriesModelWithTransformation
+    elif model_class == "CLIPTextModelWithProjection":
+        from transformers import CLIPTextModelWithProjection
 
-        return RobertaSeriesModelWithTransformation
+        return CLIPTextModelWithProjection
     else:
         raise ValueError(f"{model_class} is not supported.")
 
@@ -123,29 +123,61 @@ def setup_pipeline ( controlnet_path, device='cuda'):
     """
     controlnet = ControlNetModel.from_pretrained(controlnet_path)
     
-    sd_inpainting_model_name = "stabilityai/stable-diffusion-2-inpainting"
-    text_encoder_cls = import_model_class_from_model_name_or_path(sd_inpainting_model_name, None)
-    
-    # Load components
-    tokenizer = AutoTokenizer.from_pretrained(
-        sd_inpainting_model_name, subfolder="tokenizer", use_fast=False,
+    sd_inpainting_model_name = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
+    # import correct text encoder classes
+    text_encoder_cls_one = import_model_class_from_model_name_or_path(
+        sd_inpainting_model_name, 
+    )
+    text_encoder_cls_two = import_model_class_from_model_name_or_path(
+        sd_inpainting_model_name, subfolder="text_encoder_2"
+    )    
+    # Load the tokenizers
+    tokenizer_one = AutoTokenizer.from_pretrained(
+        sd_inpainting_model_name,
+        subfolder="tokenizer",
+        use_fast=False,
+    )
+    tokenizer_two = AutoTokenizer.from_pretrained(
+        sd_inpainting_model_name,
+        subfolder="tokenizer_2",
+        use_fast=False,
     )
     noise_scheduler = DDPMScheduler.from_pretrained(sd_inpainting_model_name, subfolder="scheduler")
-    text_encoder = text_encoder_cls.from_pretrained(
-        sd_inpainting_model_name, subfolder="text_encoder", revision=None
+    # import correct text encoder classes
+    text_encoder_cls_one = import_model_class_from_model_name_or_path(
+        sd_inpainting_model_name, revision=None
     )
-    vae = AutoencoderKL.from_pretrained(sd_inpainting_model_name, subfolder="vae", revision=None)
+    text_encoder_cls_two = import_model_class_from_model_name_or_path(
+        sd_inpainting_model_name, revision=None, subfolder="text_encoder_2"
+    )
+    text_encoder_one = text_encoder_cls_one.from_pretrained(
+        sd_inpainting_model_name, subfolder="text_encoder"
+    )
+    text_encoder_two = text_encoder_cls_two.from_pretrained(
+        sd_inpainting_model_name, subfolder="text_encoder_2"
+    )
+    vae_path = (
+        sd_inpainting_model_name
+    )
+    vae = AutoencoderKL.from_pretrained(
+        vae_path,
+        subfolder="vae",
+        revision=None,
+        variant=None,
+    )
     unet = UNet2DConditionModel.from_pretrained(
-        sd_inpainting_model_name, subfolder="unet", revision=None
+        sd_inpainting_model_name, subfolder="unet", revision=None, variant=None
     )
 
     # Configure pipeline
     weight_dtype = torch.float32
     pipeline = StableDiffusionControlNetInpaintPipeline.from_pretrained(
         sd_inpainting_model_name,
-        vae=vae,
-        text_encoder=text_encoder,
-        tokenizer=tokenizer,
+        vae=vae,    
+        text_encoder=text_encoder_one,
+        text_encoder_2=text_encoder_two,
+        tokenizer=tokenizer_one,
+        tokenizer_2=tokenizer_two,
         unet=unet,
         controlnet=controlnet,
         safety_checker=None,
@@ -254,8 +286,8 @@ def generate_controlnet_image(image_path, pipeline, prompt, guidance_scale,  img
         """
         generator = torch.Generator(device=device).manual_seed(seed)
         negative_prompt="octane, random artifacts, extra legs, unwanted elements,bad anatomy, extra fingers, bad fingers, missing fingers, worst hands, improperly holding objects, cropped, blurry, low quality, bad hands, missing legs, missing arms, extra fingers, cg, 3d, unreal, error, out of frame, Cartoon, CGI, Render, 3D, Artwork, Illustration, 3D render, Cinema 4D, Artstation, Octane render, Painting, Oil painting, Anime, 2D, Sketch, <BadDream:1>, by <bad-artist:1>, <UnrealisticDream:1>, <bad_prompt_version2:1>, by <bad-artist-anime:1>, <easynegative:1>",
-
-        with torch.autocast(device):
+        torch.set_grad_enabled(False)
+        with torch.autocast(device) and torch.no_grad:
             controlnet_image = pipeline(
                 prompt=prompt,
                 image=img,
@@ -382,12 +414,12 @@ def calculate_expansion(original_mask, generated_mask):
 
 if __name__ == "__main__":
     # Example usage
-    controlnet_pa = '/home/ubuntu/Desktop/mayank_gaur/controlnet-model'
+    controlnet_pa = '/home/ubuntu/Desktop/mayank_gaur/controlnet-model-sdxl-inpaint'
     images_path = '/home/ubuntu/Desktop/mayank_gaur/BENCHMARK_DATASET/masks_sorted'
     prompts_json_path = '/home/ubuntu/Desktop/mayank_gaur/BENCHMARK_DATASET/bg_prompts'
     save_pat = '/home/ubuntu/Desktop/mayank_gaur/photo-background-generation/outputs-v5-diff-re_91k_cn_0.6_75_0.85_0.9_1-neg_prompt'
     os.makedirs(save_pat, exist_ok=True)
-    ckpt_list = ['91000']
+    ckpt_list = ['11000']
     # ckpt_list = ['70000','82000', '75000', '91000']
     for ckpt in ckpt_list:
         try:
