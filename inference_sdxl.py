@@ -6,7 +6,7 @@ from diffusers import (
     UNet2DConditionModel,
     UniPCMultistepScheduler,
 )
-from pipeline_sdxl_inpaint import StableDiffusionXLInpaintPipeline
+from pipeline_sdxl_inpaint import StableDiffusionXLControlNetInpaintPipeline
 from transformers import AutoTokenizer, PretrainedConfig
 from transparent_background import Remover
 import torch
@@ -171,7 +171,7 @@ def setup_pipeline ( controlnet_path, device='cuda'):
 
     # Configure pipeline
     weight_dtype = torch.float32
-    pipeline = StableDiffusionControlNetInpaintPipeline.from_pretrained(
+    pipeline = StableDiffusionXLControlNetInpaintPipeline.from_pretrained(
         sd_inpainting_model_name,
         vae=vae,    
         text_encoder=text_encoder_one,
@@ -286,8 +286,8 @@ def generate_controlnet_image(image_path, pipeline, prompt, guidance_scale,  img
         """
         generator = torch.Generator(device=device).manual_seed(seed)
         negative_prompt="octane, random artifacts, extra legs, unwanted elements,bad anatomy, extra fingers, bad fingers, missing fingers, worst hands, improperly holding objects, cropped, blurry, low quality, bad hands, missing legs, missing arms, extra fingers, cg, 3d, unreal, error, out of frame, Cartoon, CGI, Render, 3D, Artwork, Illustration, 3D render, Cinema 4D, Artstation, Octane render, Painting, Oil painting, Anime, 2D, Sketch, <BadDream:1>, by <bad-artist:1>, <UnrealisticDream:1>, <bad_prompt_version2:1>, by <bad-artist-anime:1>, <easynegative:1>",
-        torch.set_grad_enabled(False)
-        with torch.autocast(device) and torch.no_grad:
+        # torch.set_grad_enabled(False)
+        with torch.autocast(device):
             controlnet_image = pipeline(
                 prompt=prompt,
                 image=img,
