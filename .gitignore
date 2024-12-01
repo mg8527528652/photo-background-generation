@@ -8,3 +8,5 @@ controlnet-model/
 3.json
 3.png
 models_and_outputs/
+benchmark_dataset/
+ckpt-sdxl-inpaint/

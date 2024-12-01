@@ -6,9 +6,9 @@ from diffusers import (
     UNet2DConditionModel,
     UniPCMultistepScheduler,
 )
-from pipeline_sdxl_inpaint import StableDiffusionXLControlNetInpaintPipeline
+from pipeline_sdxl_inpaint_2 import StableDiffusionXLControlNetInpaintPipeline
 from transformers import AutoTokenizer, PretrainedConfig
-from transparent_background import Remover
+# from transparent_background import  Remover
 import torch
 import requests
 from io import BytesIO
@@ -180,7 +180,7 @@ def setup_pipeline ( controlnet_path, device='cuda'):
         tokenizer_2=tokenizer_two,
         unet=unet,
         controlnet=controlnet,
-        safety_checker=None,
+        # safety_checker=None,
         revision=None,
         torch_dtype=weight_dtype,
     )
@@ -414,10 +414,10 @@ def calculate_expansion(original_mask, generated_mask):
 
 if __name__ == "__main__":
     # Example usage
-    controlnet_pa = '/home/ubuntu/Desktop/mayank_gaur/controlnet-model-sdxl-inpaint'
-    images_path = '/home/ubuntu/Desktop/mayank_gaur/BENCHMARK_DATASET/masks_sorted'
-    prompts_json_path = '/home/ubuntu/Desktop/mayank_gaur/BENCHMARK_DATASET/bg_prompts'
-    save_pat = '/home/ubuntu/Desktop/mayank_gaur/photo-background-generation/outputs-v5-diff-re_91k_cn_0.6_75_0.85_0.9_1-neg_prompt'
+    controlnet_pa = '/home/ubuntu/mayank/photo-background-generation/ckpt-sdxl-inpaint'
+    images_path = '/home/ubuntu/mayank/photo-background-generation/benchmark_dataset/BENCHMARK_DATASET/masks_sorted'
+    prompts_json_path = '/home/ubuntu/mayank/photo-background-generation/benchmark_dataset/BENCHMARK_DATASET/bg_prompts'
+    save_pat = '/home/ubuntu/mayank/photo-background-generation/res'
     os.makedirs(save_pat, exist_ok=True)
     ckpt_list = ['11000']
     # ckpt_list = ['70000','82000', '75000', '91000']
