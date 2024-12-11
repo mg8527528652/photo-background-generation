@@ -7,13 +7,16 @@ from diffusers import (
     UniPCMultistepScheduler,
     EulerDiscreteScheduler
 )
-from pipeline_sdxl_inpaint_2 import StableDiffusionXLControlNetInpaintPipeline
+from diffusers import AutoPipelineForImage2Image
+
+from pipeline_sdxl_inpaint_3 import StableDiffusionXLControlNetInpaintPipeline
 from transformers import AutoTokenizer, PretrainedConfig
 # from transparent_background import  Remover
 import torch
 import requests
 from io import BytesIO
 from PIL import Image, ImageOps
+from img2img import generate_controlled_image, load_models
 import numpy as np
 import os
 import json
@@ -40,7 +43,6 @@ def import_model_class_from_model_name_or_path(
 
 # Utility function to resize images while maintaining aspect ratio
 def resize_with_padding(img, expected_size):
-    
     """
     Resize image to expected size while maintaining aspect ratio and adding padding if necessary
     Args:
@@ -76,6 +78,7 @@ def obj_expansion(mask_ref, mask_pred):
     
     expansion = area_pred - area_ref
     return expansion
+
 
 def crop_image_to_nearest_8_multiple(pil_image):
     """
@@ -171,7 +174,7 @@ def setup_pipeline ( controlnet_path, device='cuda'):
     )
 
     # Configure pipeline
-    weight_dtype = torch.float32
+    weight_dtype = torch.float16
     pipeline = StableDiffusionXLControlNetInpaintPipeline.from_pretrained(
         sd_inpainting_model_name,
         vae=vae,    
@@ -189,8 +192,11 @@ def setup_pipeline ( controlnet_path, device='cuda'):
     pipeline.scheduler = EulerDiscreteScheduler.from_config(pipeline.scheduler.config)
     pipeline = pipeline.to(device)
     pipeline.set_progress_bar_config(disable=True)
+    # pipeline.enable_model_cpu_offload()
     
+
     return pipeline
+
 
 
 
@@ -226,13 +232,18 @@ def resize_with_aspect_ratio(image, width=None, height=None):
     return image.resize((new_width, new_height), Image.LANCZOS)  # LANCZOS is the modern replacement for ANTIALIAS
 
 def convert4ch_to_3ch(image_4ch):
-    # replace background by black and keep the foreground
+    # Convert PIL image to numpy array
+    image_4ch = np.array(image_4ch)
+    
+    # Replace background by black and keep the foreground
     image_3ch, mask = image_4ch[:, :, :3], image_4ch[:, :, 3]
     mask = mask.reshape(mask.shape[0], mask.shape[1], 1)
     mask = mask.astype(float) / 255.0
     black_bg = np.zeros((image_3ch.shape[0], image_3ch.shape[1], 3), dtype=np.uint8)
     image_3ch = black_bg * (1 - mask) + image_3ch * mask
-    return image_3ch
+    
+    # Convert numpy array back to PIL image
+    return Image.fromarray(image_3ch.astype(np.uint8))
 
 
 
@@ -293,7 +304,7 @@ def generate_controlnet_image(image_path, pipeline, prompt, guidance_scale,  img
                 prompt=prompt,
                 image=img,
                 mask_image=mask,
-                control_image=mask,
+                control_image=img,
                 guidance_scale = guidance_scale,
                 height = height,
                 negative_prompt = negative_prompt[0],
@@ -370,15 +381,16 @@ def generate_image(
     else:
         fg_mask = img.split()[-1].convert("RGB")
         mask = ImageOps.invert(fg_mask)
-    
+    rgb = convert4ch_to_3ch(img)
+    mask_ = img.split()[-1].convert("L")
+    # create a new image with RGB and alpha channel
+    img = Image.merge("RGBA", (*rgb.split()[:3], mask_))
+    import time
+    st = time.time()
     controlnet_image1, over1 = generate_controlnet_image(
         image_path, pipeline, prompt, 8, img, mask, height, width, device, seed, cond_scale, save_path
     )
-    
-    
-    
-    
-    
+    print(time.time() - st)
     # controlnet_image3, over3 = generate_controlnet_image(
     #     image_path,pipeline, prompt, 10, img, mask, height, width, device, seed, 0.75, save_path
     # )
@@ -401,13 +413,13 @@ def generate_image(
     save_path_overlay = save_path.replace('.png', '_overlay.png')
     # cv2.imwrite(save_path_overlay, over1)
     cv2.imwrite(save_path, over1)
+    over1_rgb = cv2.cvtColor(over1, cv2.COLOR_BGR2RGB)
+    return Image.merge("RGBA", (*Image.fromarray(over1_rgb).split()[:3], mask_))
+
         # Generate and return foreground mask
     # controlnet_fg_mask = remover.process(controlnet_image, type='map')
     
     # return controlnet_image6
-
-
-
 
 def calculate_expansion(original_mask, generated_mask):
     """
@@ -422,12 +434,14 @@ def calculate_expansion(original_mask, generated_mask):
 
 if __name__ == "__main__":
     # Example usage
-    controlnet_pa = '/home/ubuntu/mayank/photo-background-generation/ckpt-sdxl-inpaint-3ch-bg_mask'
-    images_path = '/home/ubuntu/mayank/photo-background-generation/benchmark_dataset/BENCHMARK_DATASET/masks_sorted'
-    prompts_json_path = '/home/ubuntu/mayank/photo-background-generation/benchmark_dataset/BENCHMARK_DATASET/bg_prompts'
-    save_pat = '/home/ubuntu/mayank/photo-background-generation/results-sdxl-inpaint-3ch-bg-mask'
+    controlnet_pa = '/root/diffusers/examples/controlnet/controlnet-model'
+    img2img_cn_path = r'/root/photo-background-generation/ckpts/jugger/checkpoint-205000/controlnet'
+    img2img_base_path = 'RunDiffusion/Juggernaut-XI-v11'
+    images_path = '/root/photo-background-generation/BENCHMARK_DATASET/masks_sorted'
+    prompts_json_path = '/root/photo-background-generation/BENCHMARK_DATASET/bg_prompts'
+    save_pat = '/root/photo-background-generation/res/results-sdxl_multi_cn-expmnt'
     os.makedirs(save_pat, exist_ok=True)
-    ckpt_list = ['92000']
+    ckpt_list = ['28000']
     # ckpt_list = ['70000','82000', '75000', '91000']
     for ckpt in ckpt_list:
         try:
@@ -438,12 +452,17 @@ if __name__ == "__main__":
             # Set up pipeline
             device = 'cuda'
             pipeline = setup_pipeline(controlnet_path, device)
+            
+            pipe_img2img =  load_models(img2img_cn_path, img2img_base_path)
+
+            
             for image_name  in os.listdir(images_path):
                 try:
                     prompt_name = os.path.join(prompts_json_path, image_name.split('.')[0] + '.json')
                     with open(prompt_name, 'r') as f:
                         prompt = json.load(f)['bg_label']
                     image_path = os.path.join(images_path, image_name)
+                    # run inpainting
                     generated_image = generate_image(
                         image_path,
                         prompt,
@@ -451,6 +470,17 @@ if __name__ == "__main__":
                         save_path=os.path.join(save_path, os.path.basename(image_path)),
                         pipeline=pipeline
                         )
+                    # run img2img
+                    img2img_image = generate_controlled_image(
+                        image = generated_image,
+                        prompt=prompt,
+                        num_inference_steps=10,
+                        pipe=pipe_img2img,
+                        strength=0.8
+                        
+                    )
+                    # save the img2img image
+                    img2img_image.save(os.path.join(save_path, os.path.basename(image_path)))
                     
                 except Exception as e:
                     print(e)

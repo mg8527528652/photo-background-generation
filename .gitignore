@@ -10,3 +10,6 @@ controlnet-model/
 models_and_outputs/
 benchmark_dataset/
 ckpt-sdxl-inpaint/
+BENCHMARK_DATASET/
+ckpts/
+res/
