@@ -13,3 +13,6 @@ ckpt-sdxl-inpaint/
 BENCHMARK_DATASET/
 ckpts/
 res/
+sched/
+tmp/
+stacked_images/
