@@ -6,7 +6,7 @@ from diffusers import (
     DDPMScheduler,
     UNet2DConditionModel,
     DDPMScheduler,    
-    DPMSolverMultistepScheduler,
+    DPMSolverSinglestepScheduler,
 
 )
 from diffusers import AutoPipelineForImage2Image
@@ -148,15 +148,13 @@ def setup_pipeline ( controlnet_path, device='cuda'):
         subfolder="tokenizer_2",
         use_fast=False,
     )
-    noise_scheduler = DDPMScheduler.from_pretrained(sd_inpainting_model_name, subfolder="scheduler",
-                                                    **
-                                                        {
-                                                        # "algorithm_type": "sde-dpmsolver++",
-                                                        "use_lu_lambdas": True,
-                                                        "use_karras_sigmas": True,
-                                                        "euler_at_final": True
-                                                        }
-                                                    )
+    noise_scheduler  = DPMSolverSinglestepScheduler.from_pretrained(sd_inpainting_model_name, subfolder="scheduler",
+                                                # **{
+                                                #               "use_lu_lambdas": True,
+                                                #             #   "use_karras_sigmas": True,
+                                                #               "euler_at_final": True
+                                                #               }
+                                                )
     # import correct text encoder classes
     text_encoder_cls_one = import_model_class_from_model_name_or_path(
         sd_inpainting_model_name, revision=None
@@ -446,7 +444,7 @@ def generate_controlnet_image(image_path, pipeline, prompt, guidance_scale,  img
             
         return controlnet_image, over
 
-
+import random
 def generate_image(
     image_path,
     prompt,
@@ -558,7 +556,7 @@ if __name__ == "__main__":
     img2img_base_path = 'RunDiffusion/Juggernaut-XI-v11'
     images_path = '/root/photo-background-generation/BENCHMARK_DATASET/masks_sorted'
     prompts_json_path = '/root/photo-background-generation/BENCHMARK_DATASET/bg_prompts'
-    save_pat = '/root/photo-background-generation/sched/DDPMScheduler_all'
+    save_pat = '/root/photo-background-generation/res3/DPMSolverSinglestepScheduler'
     os.makedirs(save_pat, exist_ok=True)
     ckpt_list = ['best_ckpt.pth-81730' ]
     from tqdm import tqdm
@@ -577,7 +575,9 @@ if __name__ == "__main__":
             # pipe_img2img =  load_models(img2img_cn_path, img2img_base_path)
 
             
-            for image_name  in tqdm(os.listdir('/root/photo-background-generation/tmp')):
+            # for image_name  in tqdm(os.listdir('/root/photo-background-generation/tmp')):
+            for image_name  in tqdm(os.listdir(images_path)):
+            
                 try:
                     prompt_name = os.path.join(prompts_json_path, image_name.split('.')[0] + '.json')
                     with open(prompt_name, 'r') as f:

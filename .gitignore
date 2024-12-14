@@ -13,6 +13,9 @@ ckpt-sdxl-inpaint/
 BENCHMARK_DATASET/
 ckpts/
 res/
+res3/
 sched/
 tmp/
 stacked_images/
+sched/
+__pycache__/

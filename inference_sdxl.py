@@ -146,7 +146,7 @@ def setup_pipeline ( controlnet_path, device='cuda'):
         use_fast=False,
     )
     # noise_scheduler = DDPMScheduler.from_pretrained(sd_inpainting_model_name, subfolder="scheduler")
-    noise_scheduler  = DPMSolverSinglestepScheduler.from_pretrained(sd_inpainting_model_name, subfolder="scheduler",
+    noise_scheduler  = DDPMScheduler.from_pretrained(sd_inpainting_model_name, subfolder="scheduler",
                                                     **{
                                                         "use_lu_lambdas": True,
                                                         "use_karras_sigmas": True,
@@ -194,7 +194,7 @@ def setup_pipeline ( controlnet_path, device='cuda'):
         torch_dtype=weight_dtype,
     )
     # pipeline.scheduler = UniPCMultistepScheduler.from_config(pipeline.scheduler.config)
-    pipeline.scheduler = EulerDiscreteScheduler.from_config(pipeline.scheduler.config)
+    pipeline.scheduler = noise_scheduler
     pipeline = pipeline.to(device)
     pipeline.set_progress_bar_config(disable=True)
     
@@ -363,7 +363,7 @@ def overlay_foreground(image_path, generated_image_path):
         img = resize_with_aspect_ratio_cv2(img, width=1024)
     height, width = img.shape[:2]
     # unpad the generated image
-    # generated_image = np.array(unpad_image(Image.fromarray(generated_image), (width, height)))
+    generated_image = np.array(unpad_image(Image.fromarray(generated_image), (width, height)))
     
     
     # Resize the input image to match the dimensions of the generated image
@@ -445,7 +445,7 @@ def generate_image(
     controlnet_path,
     save_path=None,
     seed=4321,
-    cond_scale=0.95,
+    cond_scale=1.0,
     device='cuda',
     pipeline=None
 ):
@@ -475,13 +475,13 @@ def generate_image(
     # resize the largest dim to 768, while maintaqing aspect ratio
     if width > height:
         img = resize_with_aspect_ratio(img, width=1024)
-        # img = resize_with_padding_pil(img, (1024, 1024))
+        img = resize_with_padding_pil(img, (1024, 1024))
     elif height > width:
         img = resize_with_aspect_ratio(img, height=1024)
-        # img = resize_with_padding_pil(img, (1024, 1024))
+        img = resize_with_padding_pil(img, (1024, 1024))
     else:
         img = resize_with_aspect_ratio(img, width=1024)
-        # img = resize_with_padding_pil(img, (1024, 1024))
+        img = resize_with_padding_pil(img, (1024, 1024))
     # img = crop_image_to_nearest_8_multiple(img)
 
     width, height = img.size
@@ -547,12 +547,11 @@ def calculate_expansion(original_mask, generated_mask):
     """
     return obj_expansion(original_mask, generated_mask)
 
-if __name__ == "__main__":
-    # Example usage
+if __name__ == "__main__": # Example usage
     controlnet_pa = '/root/photo-background-generation/ckpts/ckpt-sdxl-inpaint-3ch-bg_mask'
     images_path = '/root/photo-background-generation/BENCHMARK_DATASET/masks_sorted'
     prompts_json_path = '/root/photo-background-generation/BENCHMARK_DATASET/bg_prompts'
-    save_pat = '/root/photo-background-generation/res/results-sdxl-inpaint-3ch-bg-mask-dpmSS_2k_0.95'
+    save_pat = '/root/photo-background-generation/res/results-sdxl-inpaint-3ch-bg-mask-fin-1.0'
     os.makedirs(save_pat, exist_ok=True)
     ckpt_list = ['92000']
     # ckpt_list = ['70000','82000', '75000', '91000']
