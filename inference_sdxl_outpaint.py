@@ -9,7 +9,10 @@ from diffusers import (
     EulerDiscreteScheduler,
     
 )
-from pipeline_sdxl_inpaint_2 import StableDiffusionXLControlNetInpaintPipeline
+from safetensors.torch import load_file
+
+# from pipeline_sdxl_inpaint_3 import StableDiffusionXLInpaintPipeline
+from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLInpaintPipeline
 from transformers import AutoTokenizer, PretrainedConfig
 # from transparent_background import  Remover
 import torch
@@ -115,7 +118,8 @@ def crop_image_to_nearest_8_multiple_cv2(image):
     # crop the image by delta_height / 2, from both top and bottom, and delta_width / 2, from both left and right
     cropped_image = image[delta_height//2:height-(delta_height - delta_height//2), delta_width//2:width-(delta_width - delta_width//2)  ]
     return cropped_image
-def setup_pipeline ( controlnet_path, device='cuda'):
+
+def setup_pipeline ( outpaint_model_path, device='cuda'):
     """
     Set up the Stable Diffusion ControlNet pipeline
     Args:
@@ -124,7 +128,7 @@ def setup_pipeline ( controlnet_path, device='cuda'):
     Returns:
         Configured pipeline
     """
-    controlnet = ControlNetModel.from_pretrained(controlnet_path)
+    # controlnet = ControlNetModel.from_pretrained(controlnet_path)
     
     sd_inpainting_model_name = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
     # import correct text encoder classes
@@ -146,11 +150,11 @@ def setup_pipeline ( controlnet_path, device='cuda'):
         use_fast=False,
     )
     # noise_scheduler = DDPMScheduler.from_pretrained(sd_inpainting_model_name, subfolder="scheduler")
-    noise_scheduler  = DPMSolverSinglestepScheduler.from_pretrained(sd_inpainting_model_name, subfolder="scheduler",
-                                                    **{
-                                                        "use_lu_lambdas": True,
-                                                        "use_karras_sigmas": True,
-                                                        "euler_at_final": True}
+    noise_scheduler  = DDPMScheduler.from_pretrained(sd_inpainting_model_name, subfolder="scheduler",
+                                                    # **{
+                                                    #     "use_lu_lambdas": True,
+                                                    #     "use_karras_sigmas": True,
+                                                    #     "euler_at_final": True}
                                                     )
     # import correct text encoder classes
     text_encoder_cls_one = import_model_class_from_model_name_or_path(
@@ -174,27 +178,35 @@ def setup_pipeline ( controlnet_path, device='cuda'):
         revision=None,
         variant=None,
     )
+    # unet = UNet2DConditionModel.from_pretrained(
+    #     pretrained_model_name_or_path=None, revision=None, variant=None
+    # )
     unet = UNet2DConditionModel.from_pretrained(
-        sd_inpainting_model_name, subfolder="unet", revision=None, variant=None
-    )
+        outpaint_model_path,
+        subfolder="unet",
+        revision=None,
+        # variant='fp16',
+        use_safetensors=True,  # Enable safetensors loading
+        local_files_only=True  # Prevent trying to download weights
+        )
+    # state_dict = load_file(outpaint_model_path)  # Path to your .safetensors file
+    # unet.load_state_dict(state_dict)
 
     # Configure pipeline
     weight_dtype = torch.float32
-    pipeline = StableDiffusionXLControlNetInpaintPipeline.from_pretrained(
-        sd_inpainting_model_name,
+    pipeline = StableDiffusionXLInpaintPipeline.from_pretrained(
+        sd_inpainting_model_name, 
         vae=vae,    
         text_encoder=text_encoder_one,
         text_encoder_2=text_encoder_two,
         tokenizer=tokenizer_one,
         tokenizer_2=tokenizer_two,
         unet=unet,
-        controlnet=controlnet,
+        # controlnet=controlnet,
         # safety_checker=None,
         revision=None,
         torch_dtype=weight_dtype,
     )
-    pipeline.load_ip_adapter("h94/IP-Adapter", subfolder="sdxl_models", weight_name="ip-adapter_sdxl.bin")
-
     # pipeline.scheduler = UniPCMultistepScheduler.from_config(pipeline.scheduler.config)
     pipeline.scheduler = noise_scheduler
     pipeline = pipeline.to(device)
@@ -388,7 +400,25 @@ def overlay_foreground(image_path, generated_image_path):
     # overlaid_image = np.hstack([img_3ch, overlaid_image])
     return overlaid_image
 
+def prepare_mask_and_masked_image(image, mask):
+    image = np.array(image)
+    image = image[None].transpose(0, 3, 1, 2)
+    image = torch.from_numpy(image).to(dtype=torch.float32) / 127.5 - 1.0
+    # mask is 4 channel tensor, extract the last channel which is mask
+    if mask.mode == 'RGBA':
+        mask = mask.split()[-1]  # Get alpha channel
+    else:
+        mask = mask.convert("L")
+    mask = np.array(mask)
+    mask = mask.astype(np.float32) / 255.0
+    mask = mask[None, None]
+    mask[mask < 0.5] = 0
+    mask[mask >= 0.5] = 1
+    mask = torch.from_numpy(mask)
 
+    masked_image = image * (mask < 0.5)
+
+    return mask, masked_image
 
 def generate_controlnet_image(image_path, pipeline, prompt, guidance_scale,  img, mask, height, width, device, seed, cond_scale, save_path=None):
         """
@@ -410,24 +440,20 @@ def generate_controlnet_image(image_path, pipeline, prompt, guidance_scale,  img
         generator = torch.Generator(device=device).manual_seed(seed)
         negative_prompt="octane, random artifacts, extra legs, unwanted elements,bad anatomy, extra fingers, bad fingers, missing fingers, worst hands, improperly holding objects, cropped, blurry, low quality, bad hands, missing legs, missing arms, extra fingers, cg, 3d, unreal, error, out of frame, Cartoon, CGI, Render, 3D, Artwork, Illustration, 3D render, Cinema 4D, Artstation, Octane render, Painting, Oil painting, Anime, 2D, Sketch, <BadDream:1>, by <bad-artist:1>, <UnrealisticDream:1>, <bad_prompt_version2:1>, by <bad-artist-anime:1>, <easynegative:1>",
         # torch.set_grad_enabled(False)
+        # mask, masked_image = prepare_mask_and_masked_image(img.convert('RGB'), mask)
         with torch.autocast(device):
             controlnet_image = pipeline(
-                prompt=prompt,
-                image=img,
+                # prompt=prompt,
+                image=img.convert('RGB'),
                 mask_image=mask,
-                control_image=mask,
-                guidance_scale = guidance_scale,
-                
-                height = height,
-                negative_prompt = negative_prompt[0],
-                width= width,
+                # masked_image = masked_image,
+                height = 1024,
+                # negative_prompt = negative_prompt[0],
+                width= 1024,
                 num_images_per_prompt=1,
                 strength=1.0,
-                ip_adapter_image = img.convert('RGB'),
                 generator=generator,
                 num_inference_steps=20,
-                guess_mode=False,
-                controlnet_conditioning_scale=cond_scale
             ).images[0]
             if save_path:
                 controlnet_image.save(save_path)        
@@ -446,7 +472,6 @@ def generate_controlnet_image(image_path, pipeline, prompt, guidance_scale,  img
 def generate_image(
     image_path,
     prompt,
-    controlnet_path,
     save_path=None,
     seed=4321,
     cond_scale=1.0,
@@ -473,8 +498,9 @@ def generate_image(
         img = Image.open(BytesIO(response.content))
     else:
         img = Image.open(image_path)
-
+    img = crop_image_to_nearest_8_multiple(img)
     # img = resize_with_padding(img, (768, 768))
+    width_, height_ = img.size
     width, height = img.size
     # resize the largest dim to 768, while maintaqing aspect ratio
     if width > height:
@@ -509,7 +535,7 @@ def generate_image(
     import time
     st = time.time()
     controlnet_image1, over1 = generate_controlnet_image(
-        image_path, pipeline, prompt, 8, img, mask, height, width, device, seed, cond_scale, save_path
+        image_path, pipeline, prompt, 8, img, mask, height_, width_, device, seed, cond_scale, save_path
     )
     print(time.time() - st)
     
@@ -552,40 +578,36 @@ def calculate_expansion(original_mask, generated_mask):
     return obj_expansion(original_mask, generated_mask)
 
 if __name__ == "__main__": # Example usage
-    controlnet_pa = '/root/photo-background-generation/ckpts/cn_train_inpaint_sdxl_v2'
+    outpaint_model_path = '/root/diffusers/examples/text_to_image/sdxl-model-finetuned/checkpoint-12000'
     images_path = '/root/photo-background-generation/benchmark_dataset_BG_REPLACOR/masks_sorted'
     prompts_json_path = '/root/photo-background-generation/benchmark_dataset_BG_REPLACOR/bg_prompts'
-    save_pat = '/root/photo-background-generation/res/results-sdxl-inpaint-bg-mask-ci'
-    os.makedirs(save_pat, exist_ok=True)
-    ckpt_list = ['83000', '89000' ]
+    save_path = '/root/photo-background-generation/res/results-outpainting/101-12'
+    os.makedirs(save_path, exist_ok=True)
+    # ckpt_list = ['92000']
     # ckpt_list = ['70000','82000', '75000', '91000']
-    for ckpt in ckpt_list:
+
+    # Set up pipeline
+    device = 'cuda'
+    # pipeline = setup_pipeline(outpaint_model_path, device)
+    unet = UNet2DConditionModel.from_pretrained(outpaint_model_path, subfolder="unet")
+    pipeline = StableDiffusionXLInpaintPipeline.from_pretrained(
+        'diffusers/stable-diffusion-xl-1.0-inpainting-0.1', unet=unet, safety_checker=None
+    )
+    pipeline.to(device)
+    
+    for image_name  in os.listdir(images_path):
         try:
-            controlnet_path = os.path.join(controlnet_pa, 'checkpoint-' + ckpt, 'controlnet')
-            print(controlnet_path)
-            save_path = os.path.join(save_pat, 'checkpoint-' + ckpt)
-            os.makedirs(save_path, exist_ok=True)   
-            # Set up pipeline
-            device = 'cuda'
-            pipeline = setup_pipeline(controlnet_path, device)
-            for image_name  in os.listdir(images_path):
-                try:
-                    prompt_name = os.path.join(prompts_json_path, image_name.split('.')[0] + '.json')
-                    with open(prompt_name, 'r') as f:
-                        prompt = json.load(f)['bg_label']
-                    image_path = os.path.join(images_path, image_name)
-                    generated_image = generate_image(
-                        image_path,
-                        prompt,
-                        controlnet_path,
-                        save_path=os.path.join(save_path, os.path.basename(image_path)),
-                        pipeline=pipeline
-                        )
-                    
-                except Exception as e:
-                    print(e)
-                    continue
+            prompt_name = os.path.join(prompts_json_path, image_name.split('.')[0] + '.json')
+            with open(prompt_name, 'r') as f:
+                prompt = json.load(f)['bg_label']
+            image_path = os.path.join(images_path, image_name)
+            generated_image = generate_image(
+                image_path,
+                prompt,
+                save_path=os.path.join(save_path, os.path.basename(image_path)),
+                pipeline=pipeline
+                )
+            
         except Exception as e:
             print(e)
             continue
-

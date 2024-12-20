@@ -149,12 +149,11 @@ def setup_pipeline ( controlnet_path, device='cuda'):
         use_fast=False,
     )
     noise_scheduler  = DPMSolverSinglestepScheduler.from_pretrained(sd_inpainting_model_name, subfolder="scheduler",
-                                                # **{
-                                                #               "use_lu_lambdas": True,
-                                                #             #   "use_karras_sigmas": True,
-                                                #               "euler_at_final": True
-                                                #               }
-                                                )
+                                                    **{
+                                                        "use_lu_lambdas": True,
+                                                        "use_karras_sigmas": True,
+                                                        "euler_at_final": True}
+                                                    )
     # import correct text encoder classes
     text_encoder_cls_one = import_model_class_from_model_name_or_path(
         sd_inpainting_model_name, revision=None
@@ -551,14 +550,14 @@ def calculate_expansion(original_mask, generated_mask):
 
 if __name__ == "__main__":
     # Example usage
-    controlnet_pa = '/root/diffusers/examples/controlnet/controlnet-model'
+    controlnet_pa = '/root/photo-background-generation/ckpts/cn_inpaint_sdxl_multi_channel_v4'
     img2img_cn_path = r'/root/photo-background-generation/ckpts/jugger/checkpoint-205000/controlnet'
     img2img_base_path = 'RunDiffusion/Juggernaut-XI-v11'
-    images_path = '/root/photo-background-generation/BENCHMARK_DATASET/masks_sorted'
-    prompts_json_path = '/root/photo-background-generation/BENCHMARK_DATASET/bg_prompts'
-    save_pat = '/root/photo-background-generation/res3/DPMSolverSinglestepScheduler'
+    images_path = '/root/photo-background-generation/benchmark_dataset_BG_REPLACOR/masks_sorted'
+    prompts_json_path = '/root/photo-background-generation/benchmark_dataset_BG_REPLACOR/bg_prompts'
+    save_pat = '/root/photo-background-generation/res/sdxl-inpaint-4ch'
     os.makedirs(save_pat, exist_ok=True)
-    ckpt_list = ['best_ckpt.pth-81730' ]
+    ckpt_list = ['checkpoint-81730' ]
     from tqdm import tqdm
     # ckpt_list = ['52000']
     for ckpt in ckpt_list:

@@ -19,3 +19,4 @@ tmp/
 stacked_images/
 sched/
 __pycache__/
+benchmark_dataset_BG_REPLACOR/

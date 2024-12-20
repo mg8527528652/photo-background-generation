@@ -30,15 +30,15 @@ def stack_images_in_grid(image_paths, grid_dim):
     return grid_image
 
 # Example usage
-root = '/root/photo-background-generation/sched'
+root = '/root/photo-background-generation/res/results-sdxl-inpaint-bg-mask-ci'
 folder_paths = os.listdir(root)
-image_names = os.listdir(os.path.join(root, folder_paths[0], 'checkpoint-best_ckpt.pth-81730'))
+image_names = os.listdir(os.path.join(root, folder_paths[0]))
 os.makedirs(os.path.join(root, 'stacked_images'),exist_ok=True)
 for sku in image_names:
     images_paths = []
     for folder_path in folder_paths:
-        image_path = os.path.join(root, folder_path, 'checkpoint-best_ckpt.pth-81730', sku)
+        image_path = os.path.join(root, folder_path, sku)
         images_paths.append(image_path)
-    stacked_images= stack_images_in_grid(images_paths, (2, 4))
+    stacked_images= stack_images_in_grid(images_paths, (2, 3))
     stacked_images.save(os.path.join(root, 'stacked_images', sku))
         # print(image_path)

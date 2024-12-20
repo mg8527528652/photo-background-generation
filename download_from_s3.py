@@ -7,8 +7,8 @@ AWS_ACCESS_KEY_ID = '8J824EFSZLNXXTRIDCIF'
 AWS_SECRET_ACCESS_KEY = 'IwHDQrnL42iE1vo2Mvmez0YSennQXrrQXN2E4VpG'
 WASABI_ENDPOINT = 'https://s3.us-east-2.wasabisys.com'
 BUCKET_NAME = 'ai-image-editor-webapp'
-FOLDER_NAME = 'cn_inpaint_sdxl_multi_channel_v4/checkpoint-26000/controlnet'  # Folder in the S3 bucket
-DOWNLOAD_DIR = '/root/photo-background-generation/ckpts/cn_inpaint_sdxl_multi_channel_v4/checkpoint-26000/controlnet'  # Local directory to save files
+FOLDER_NAME = 'cn_train_inpaint_sdxl_v2/checkpoint-83000/controlnet'  # Folder in the S3 bucket
+DOWNLOAD_DIR = '/root/photo-background-generation/ckpts/cn_train_inpaint_sdxl_v2/checkpoint-83000/controlnet'  # Local directory to save files
 
 # Initialize S3 client with Wasabi
 s3 = boto3.client(

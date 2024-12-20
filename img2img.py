@@ -25,6 +25,8 @@ def load_models(controlnet_path, base_model_path):
     )
     pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
     pipe.enable_model_cpu_offload()
+    pipe.load_ip_adapter("h94/IP-Adapter", subfolder="sdxl_models", weight_name="ip-adapter_sdxl.bin", low_cpu_mem_usage=True)
+
 
     # pipe.to('cuda')
     return pipe
@@ -320,14 +322,14 @@ if __name__ == "__main__":
     jpg_path = ""
     prompts_path  = "/home/ubuntu/mayank/photo-background-generation/benchmark_dataset/BENCHMARK_DATASET/bg_prompts"
     save_path = "/home/ubuntu/mayank/cn_img2img_juggernaut_multi_signals"
-    base_controlnet_path = "/home/ubuntu/mayank/cn_train_multi_signal_CN_juggernaut_v1"
-    base_model_path = "RunDiffusion/Juggernaut-XI-v11"
+    base_controlnet_path = "/root/photo-background-generation/ckpts/cn_train_inpaint_sdxl_v2"
+    base_model_path = "SG161222/Realistic_Vision_V6.0_B1_noVAE"
     controlnet_models = os.listdir(base_controlnet_path)
 
     for controlnet_model in controlnet_models:
         try:    
             # if controlnet_model not in ['checkpoint-'+i+'000' for i in ['65', '61', '58', '57', '50', '47', '24', '23', '22']]:
-            if controlnet_model not in ['checkpoint-'+i+'000' for i in ['191']]:
+            if controlnet_model not in ['checkpoint-'+i+'000' for i in ['83']]:
                 print('skipping')
                 continue
             controlnet_path = os.path.join(base_controlnet_path , controlnet_model , "controlnet")
