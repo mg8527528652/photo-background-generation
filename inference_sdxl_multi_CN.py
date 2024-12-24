@@ -393,50 +393,50 @@ def overlay_foreground(image_path, generated_image_path):
     return overlaid_image
 
 
-def generate_controlnet_image(image_path, pipeline, prompt, guidance_scale,  img, mask, height, width, device, seed, cond_scale, save_path=None):
-        """
-        Generate image using ControlNet pipeline
-        Args:
-            pipeline: ControlNet pipeline
-            prompt: Text prompt for generation
-            img: Input image
-            mask: Mask image
-            height: Output image height
-            width: Output image width 
-            device: Device to run inference on
-            seed: Random seed
-            cond_scale: ControlNet conditioning scale
-            save_path: Optional path to save generated image
-        Returns:
-            Generated image and overlaid result
-        """
-        generator = torch.Generator(device=device).manual_seed(seed)
-        negative_prompt="octane, multiple humans, random artifacts, extra legs, unwanted elements,bad anatomy, extra fingers, bad fingers, missing fingers, worst hands, improperly holding objects, cropped, blurry, low quality, bad hands, missing legs, missing arms, extra fingers, cg, 3d, unreal, error, out of frame, Cartoon, CGI, Render, 3D, Artwork, Illustration, 3D render, Cinema 4D, Artstation, Octane render, Painting, Oil painting, Anime, 2D, Sketch, <BadDream:1>, by <bad-artist:1>, <UnrealisticDream:1>, <bad_prompt_version2:1>, by <bad-artist-anime:1>, <easynegative:1>",
-        # torch.set_grad_enabled(False)
-        
-        with torch.autocast(device):
-            controlnet_image = pipeline(
-                prompt=prompt,
-                image=img,
-                mask_image=mask,
-                control_image=img,
-                guidance_scale = guidance_scale,
-                height = height,
-                negative_prompt = negative_prompt[0],
-                width= width,
-                num_images_per_prompt=1,
-                strength=1.0,
-                generator=generator,
-                num_inference_steps=40,
-                guess_mode=False,
-                controlnet_conditioning_scale=cond_scale
-            ).images[0]
-            if save_path:
-                controlnet_image.save(save_path)        
+def generate_controlnet_image(image_path, pipeline, prompt, guidance_scale, img, mask, height, width, device, seed, cond_scale, save_path=None):
+    """
+    Generate image using ControlNet pipeline
+    """
+    generator = torch.Generator(device=device).manual_seed(seed)
+    negative_prompt = "octane, multiple humans, random artifacts, extra legs, unwanted elements,bad anatomy, extra fingers, bad fingers, missing fingers, worst hands, improperly holding objects, cropped, blurry, low quality, bad hands, missing legs, missing arms, extra fingers, cg, 3d, unreal, error, out of frame, Cartoon, CGI, Render, 3D, Artwork, Illustration, 3D render, Cinema 4D, Artstation, Octane render, Painting, Oil painting, Anime, 2D, Sketch, <BadDream:1>, by <bad-artist:1>, <UnrealisticDream:1>, <bad_prompt_version2:1>, by <bad-artist-anime:1>, <easynegative:1>"
 
-        # overlay the foreground of original image with original image, ands keep background as generated image
-        # Convert fg_mask to proper transparency mask format
+    # Convert mask to tensor format
+    mask_tensor = torch.from_numpy(np.array(mask)).unsqueeze(0).unsqueeze(0) / 255.0  # Add both batch and channel dimensions
+    
+    # Convert img to tensor format if it's not already
+    if isinstance(img, Image.Image):
+        img = np.array(img)
+        img = torch.from_numpy(img).permute(2, 0, 1) / 255.0
+    
+    # Ensure both are float tensors
+    img = img.float()
+    mask_tensor = mask_tensor.float()
+    
+    # Combine image and mask channels
+    img_6ch = torch.cat([img[:3], mask_tensor.squeeze(0).repeat(3, 1, 1)], dim=0)  # Remove batch dimension from mask before repeating
+    img_6ch = img_6ch.unsqueeze(0)  # Add batch dimension
+
+    with torch.autocast(device):
+        controlnet_image = pipeline(
+            prompt=prompt,
+            image=img_6ch,
+            mask_image=mask,
+            control_image=img,
+            guidance_scale=guidance_scale,
+            height=height,
+            negative_prompt=negative_prompt,
+            width=width,
+            num_images_per_prompt=1,
+            strength=1.0,
+            generator=generator,
+            num_inference_steps=40,
+            guess_mode=False,
+            controlnet_conditioning_scale=cond_scale
+        ).images[0]
         
+        if save_path:
+            controlnet_image.save(save_path)
+
         over = overlay_foreground(image_path, save_path)
         if save_path:
             cv2.imwrite(save_path, over)
@@ -550,20 +550,20 @@ def calculate_expansion(original_mask, generated_mask):
 
 if __name__ == "__main__":
     # Example usage
-    controlnet_pa = '/root/photo-background-generation/ckpts/cn_inpaint_sdxl_multi_channel_v4'
+    controlnet_pa = '/home/ubuntu/mayank/cn_inpaint_sdxl_multi_channel'
     img2img_cn_path = r'/root/photo-background-generation/ckpts/jugger/checkpoint-205000/controlnet'
     img2img_base_path = 'RunDiffusion/Juggernaut-XI-v11'
-    images_path = '/root/photo-background-generation/benchmark_dataset_BG_REPLACOR/masks_sorted'
-    prompts_json_path = '/root/photo-background-generation/benchmark_dataset_BG_REPLACOR/bg_prompts'
-    save_pat = '/root/photo-background-generation/res/sdxl-inpaint-4ch'
+    images_path = '/home/ubuntu/mayank/benchmark_dataset_BG_REPLACOR/alpha_images'
+    prompts_json_path = '/home/ubuntu/mayank/benchmark_dataset_BG_REPLACOR/bg_prompts'
+    save_pat = '/home/ubuntu/mayank/res/multi_CN_sdxl'
     os.makedirs(save_pat, exist_ok=True)
     ckpt_list = ['checkpoint-81730' ]
     from tqdm import tqdm
-    # ckpt_list = ['52000']
+    ckpt_list = ['34000']
     for ckpt in ckpt_list:
         try:
-            # controlnet_path = os.path.join(controlnet_pa, 'checkpoint-' + ckpt, 'controlnet')
-            controlnet_path = os.path.join(controlnet_pa, ckpt, 'controlnet')
+            controlnet_path = os.path.join(controlnet_pa, 'checkpoint-' + ckpt, 'controlnet')
+            # controlnet_path = os.path.join(controlnet_pa, ckpt, 'controlnet')
             print(controlnet_path)
             save_path = os.path.join(save_pat, 'checkpoint-' + ckpt)
             os.makedirs(save_path, exist_ok=True)   

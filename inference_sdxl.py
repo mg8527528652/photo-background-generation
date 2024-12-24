@@ -82,10 +82,8 @@ def obj_expansion(mask_ref, mask_pred):
 def crop_image_to_nearest_8_multiple(pil_image):
     """
     Crops a PIL image to the nearest multiple of 8 pixels in both dimensions.
-    
     Args:
         pil_image: PIL.Image object
-        
     Returns:
         PIL.Image: Cropped image with dimensions that are multiples of 8
     """
@@ -124,7 +122,7 @@ def setup_pipeline ( controlnet_path, device='cuda'):
     Returns:
         Configured pipeline
     """
-    controlnet = ControlNetModel.from_pretrained(controlnet_path)
+    controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype = torch.float16,)
     
     sd_inpainting_model_name = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
     # import correct text encoder classes
@@ -175,11 +173,14 @@ def setup_pipeline ( controlnet_path, device='cuda'):
         variant=None,
     )
     unet = UNet2DConditionModel.from_pretrained(
-        sd_inpainting_model_name, subfolder="unet", revision=None, variant=None
+        sd_inpainting_model_name, subfolder="unet", revision=None, torch_dtype = torch.float16
     )
 
+    # Enable gradient checkpointing to save VRAM
+    unet.enable_gradient_checkpointing()
+
     # Configure pipeline
-    weight_dtype = torch.float32
+    weight_dtype = torch.float16
     pipeline = StableDiffusionXLControlNetInpaintPipeline.from_pretrained(
         sd_inpainting_model_name,
         vae=vae,    
@@ -193,15 +194,15 @@ def setup_pipeline ( controlnet_path, device='cuda'):
         revision=None,
         torch_dtype=weight_dtype,
     )
-    pipeline.load_ip_adapter("h94/IP-Adapter", subfolder="sdxl_models", weight_name="ip-adapter_sdxl.bin")
 
     # pipeline.scheduler = UniPCMultistepScheduler.from_config(pipeline.scheduler.config)
     pipeline.scheduler = noise_scheduler
     pipeline = pipeline.to(device)
-    pipeline.set_progress_bar_config(disable=True)
+    pipeline.set_progress_bar_config(disable=False)
     
-    return pipeline
+    pipeline.enable_model_cpu_offload()
 
+    return pipeline
 
 
 def resize_with_aspect_ratio(image, width=None, height=None):
@@ -423,7 +424,6 @@ def generate_controlnet_image(image_path, pipeline, prompt, guidance_scale,  img
                 width= width,
                 num_images_per_prompt=1,
                 strength=1.0,
-                ip_adapter_image = img.convert('RGB'),
                 generator=generator,
                 num_inference_steps=20,
                 guess_mode=False,
@@ -552,12 +552,12 @@ def calculate_expansion(original_mask, generated_mask):
     return obj_expansion(original_mask, generated_mask)
 
 if __name__ == "__main__": # Example usage
-    controlnet_pa = '/root/photo-background-generation/ckpts/cn_train_inpaint_sdxl_v2'
-    images_path = '/root/photo-background-generation/benchmark_dataset_BG_REPLACOR/masks_sorted'
-    prompts_json_path = '/root/photo-background-generation/benchmark_dataset_BG_REPLACOR/bg_prompts'
-    save_pat = '/root/photo-background-generation/res/results-sdxl-inpaint-bg-mask-ci'
+    controlnet_pa = '/home/ubuntu/mayank/photo-background-generation/ckpts/cn_train_inpaint_sdxl_v2'
+    images_path = '/home/ubuntu/mayank/infer_setup/benchmark_dataset_BG_REPLACOR/masks_sorted'
+    prompts_json_path = '/home/ubuntu/mayank/infer_setup/benchmark_dataset_BG_REPLACOR/bg_prompts'
+    save_pat = '/home/ubuntu/mayank/res/results-sdxl-inpaint-bg-mask-ci'
     os.makedirs(save_pat, exist_ok=True)
-    ckpt_list = ['83000', '89000' ]
+    ckpt_list = ['89000' ]
     # ckpt_list = ['70000','82000', '75000', '91000']
     for ckpt in ckpt_list:
         try:
@@ -565,7 +565,7 @@ if __name__ == "__main__": # Example usage
             print(controlnet_path)
             save_path = os.path.join(save_pat, 'checkpoint-' + ckpt)
             os.makedirs(save_path, exist_ok=True)   
-            # Set up pipeline
+            # Set up pipelineload_ip_adapter
             device = 'cuda'
             pipeline = setup_pipeline(controlnet_path, device)
             for image_name  in os.listdir(images_path):
